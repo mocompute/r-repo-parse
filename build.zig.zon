@@ -1,0 +1,23 @@
+.{
+    .name = "r_repo_parse",
+    .version = "0.1.0",
+    .minimum_zig_version = "0.14.0",
+    .dependencies = .{
+        .common = .{
+            .path = "src/common",
+        },
+        .mos = .{
+            .url = "https://codeberg.org/mocompute/mos/archive/main.tar.gz",
+            .hash = "1220b6da547644c2792c9490e3a813978c90b6aae8519b056a13ba40af1968cff8e7",
+        },
+    },
+
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+        // For example...
+        //"LICENSE",
+        //"README.md",
+    },
+}
