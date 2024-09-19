@@ -93,7 +93,7 @@ pub fn build(b: *Build) !void {
     // -- begin module -------------------------------------------------------
 
     const mod = b.addModule("r-repo-parse", .{
-        .root_source_file = b.path("src/repository.zig"),
+        .root_source_file = b.path("src/root.zig"),
         .target = target,
         .optimize = optimize,
     });
