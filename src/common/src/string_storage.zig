@@ -67,11 +67,16 @@ pub const StringStorage = struct {
         if (self.index.get(string)) |v|
             return v;
 
+        const alloc = self.arena.allocator();
+
+        // dupe the string so the caller can release its memory
+        const our_key = try alloc.dupe(u8, string);
+
         // append and capture slice to new slice
         const ours = try self.arena.allocator().alloc(u8, string.len);
         @memcpy(ours, string);
 
-        try self.index.putNoClobber(string, ours);
+        try self.index.putNoClobber(our_key, ours);
 
         return ours;
     }
