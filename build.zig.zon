@@ -16,7 +16,7 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 .{
-    .name = "r_repo_parse",
+    .name = "r-repo-parse",
     .version = "0.1.0",
     .minimum_zig_version = "0.14.0",
     .dependencies = .{
