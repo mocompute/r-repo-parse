@@ -1,4 +1,21 @@
-//! The C interface to rrepoparse.
+// This file is part of r-repo-parse.
+//
+// Copyright (C) 2024 <https://codeberg.org/mocompute>
+//
+// r-repo-parse is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// r-repo-parse is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+//! The C interface to r-repo-parse.
 //!
 //! Call `repo_init` to initialise the repository structure, and
 //! `repo_deinit` to release its memory. Call `repo_read` to parse a
