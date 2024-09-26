@@ -35,7 +35,7 @@ pub fn downloadFile(alloc: std.mem.Allocator, url: []const u8, out_path: []const
     var header_buffer: [16 * 1024]u8 = undefined;
     var buf: [16 * 1024]u8 = undefined;
 
-    var out_file = try std.fs.cwd().createFile(out_path, .{ .exclusive = true });
+    var out_file = try std.fs.cwd().createFile(out_path, .{ .truncate = true });
     defer out_file.close();
 
     const uri = try std.Uri.parse(url);
@@ -106,7 +106,8 @@ fn doDownloadFile(
     statuses.items[index] = .ok;
 }
 
-/// Return true if a HEAD request is successful.
+/// Return true if a HEAD request is successful, including if it
+/// returns a redirect.
 pub fn headOk(alloc: std.mem.Allocator, url: []const u8) !bool {
     var client = std.http.Client{ .allocator = alloc };
 
@@ -122,5 +123,6 @@ pub fn headOk(alloc: std.mem.Allocator, url: []const u8) !bool {
     try req.finish();
     try req.wait();
 
-    return req.response.status.class() == .success;
+    const class = req.response.status.class();
+    return class == .success or class == .redirect;
 }
