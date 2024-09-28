@@ -119,6 +119,7 @@ pub const Parser = struct {
         // set up source and nodes buffer
         self._source = source;
         try self.nodes.ensureTotalCapacity(source.len / 10);
+
         self._tokenizer = Tokenizer.init(source);
 
         try self.appendNode(Node{ .root = .{} });

@@ -113,10 +113,6 @@ pub fn read(self: *Repository, name: []const u8, source: []const u8) !usize {
     try self.packages.ensureTotalCapacity(self.alloc, parser.nodes.items.len / 30);
     defer self.packages.shrinkAndFree(self.alloc, self.packages.len);
 
-    // reserve estimated additional space for strings
-    // FIXME: preallocate string storage earlier
-    // try self.strings.ensureCapacity(parser.nodes.items.len / 30 * 16);
-
     // reserve working list of []NameAndVersionConstraint
     var nav_list = try std.ArrayList(NameAndVersionConstraint).initCapacity(self.alloc, 16);
     defer nav_list.deinit();
