@@ -87,7 +87,7 @@ test "PACKAGES.gz" {
     try testing.expectEqualStrings("A3", pack.?.name);
 
     // index
-    var index = try repo.createIndex();
+    var index = try Repository.Index.init(repo);
     defer index.deinit();
     try testing.expect(index.items.count() <= repo.packages.len);
 
@@ -116,7 +116,7 @@ test "PACKAGES sanity check" {
     if (source) |s| _ = try repo.read("test", s);
     if (source) |s| alloc.free(s);
 
-    var index = try repo.createIndex();
+    var index = try Repository.Index.init(repo);
     defer index.deinit();
 
     var unsatisfied = std.StringHashMap(std.ArrayList(NameAndVersionConstraint)).init(alloc);
@@ -195,7 +195,7 @@ test "find latest package" {
         var repo = try Repository.init(alloc);
         defer repo.deinit();
         _ = try repo.read("test", data2);
-        var index = try repo.createIndex();
+        var index = try Repository.Index.init(repo);
         defer index.deinit();
 
         const package_index = Repository.Tools.matchPackage(index, NameAndVersionConstraint{

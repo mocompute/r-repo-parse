@@ -46,7 +46,7 @@ pub fn first(self: Repository) ?Package {
     return it.next();
 }
 
-/// Return package(s) information for given NameAndVersionConstraint.
+/// Return one or more packages information for given NameAndVersionConstraint.
 pub fn findPackage(
     self: Repository,
     alloc: Allocator,
@@ -90,11 +90,6 @@ pub fn findLatestPackage(
             return latest;
         },
     }
-}
-
-/// Create an index of this repository. Caller must call deinit.
-pub fn createIndex(self: Repository) !Index {
-    return Index.init(self);
 }
 
 /// Read packages information from provided source. Expects Debian
