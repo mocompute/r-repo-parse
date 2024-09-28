@@ -4,38 +4,6 @@ const MapType = std.StringHashMap(AvailableVersions);
 
 items: MapType,
 
-const AvailableVersions = union(enum) {
-    single: VersionIndex,
-    multiple: std.ArrayList(VersionIndex),
-
-    pub fn format(
-        self: AvailableVersions,
-        comptime fmt: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        _ = options;
-        _ = fmt;
-        switch (self) {
-            .single => |vi| {
-                try writer.print("(IndexVersion.single {s} {})", .{
-                    vi.version.string,
-                    vi.index,
-                });
-            },
-            .multiple => |l| {
-                try writer.print("(IndexVersion.multiple", .{});
-                for (l.items) |x| {
-                    try writer.print(" {s}", .{x.version});
-                }
-                try writer.print(")", .{});
-            },
-        }
-    }
-};
-
-const VersionIndex = struct { version: Version, index: usize };
-
 /// Create an index of the repo. Uses the repository's
 /// allocator for its internal buffers. Caller must deinit to
 /// release buffers.
@@ -99,19 +67,30 @@ pub fn deinit(self: *Index) void {
     self.* = undefined;
 }
 
-/// Return index into repository packages for a package which
-/// matches the requested constraint, or null.
-pub fn findPackage(self: Index, package: NameAndVersionConstraint) ?usize {
-    return if (self.items.get(package.name)) |entry| switch (entry) {
-        .single => |e| if (package.version_constraint.satisfied(e.version)) e.index else null,
-        .multiple => |es| b: {
-            for (es.items) |e| {
-                if (package.version_constraint.satisfied(e.version)) break :b e.index;
-            }
-            break :b null;
-        },
-    } else null;
-}
+const AvailableVersions = union(enum) {
+    single: VersionIndex,
+    multiple: std.ArrayList(VersionIndex),
+
+    pub fn format(self: AvailableVersions, comptime _: []const u8, _: std.fmt.FormatOptions, w: anytype) !void {
+        switch (self) {
+            .single => |vi| {
+                try w.print("(IndexVersion.single {} {})", .{
+                    vi.version,
+                    vi.index,
+                });
+            },
+            .multiple => |l| {
+                try w.print("(IndexVersion.multiple", .{});
+                for (l.items) |x| {
+                    try w.print(" {s}", .{x.version});
+                }
+                try w.print(")", .{});
+            },
+        }
+    }
+};
+
+const VersionIndex = struct { version: Version, index: usize };
 
 const Index = @This();
 const std = @import("std");

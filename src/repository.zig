@@ -20,10 +20,6 @@
 /// package repository PACKAGES files.
 pub const Repository = @import("Repository.zig");
 
-//
-// -- test -------------------------------------------------------------------
-//
-
 test "PACKAGES.gz" {
     const path = "PACKAGES.gz";
     std.fs.cwd().access(path, .{}) catch return;
@@ -202,22 +198,28 @@ test "find latest package" {
         var index = try repo.createIndex();
         defer index.deinit();
 
-        const package_index = index.findPackage(NameAndVersionConstraint{ .name = "foo", .version_constraint = .{
-            .operator = .gt,
-            .version = .{
-                .major = 1,
-                .patch = 1,
+        const package_index = Repository.Tools.matchPackage(index, NameAndVersionConstraint{
+            .name = "foo",
+            .version_constraint = .{
+                .operator = .gt,
+                .version = .{
+                    .major = 1,
+                    .patch = 1,
+                },
             },
-        } });
+        });
         try testing.expectEqual(0, package_index.?);
 
-        try testing.expectEqual(null, index.findPackage(NameAndVersionConstraint{ .name = "foo", .version_constraint = .{
-            .operator = .gt,
-            .version = .{
-                .major = 1,
-                .patch = 2,
+        try testing.expectEqual(null, Repository.Tools.matchPackage(index, NameAndVersionConstraint{
+            .name = "foo",
+            .version_constraint = .{
+                .operator = .gt,
+                .version = .{
+                    .major = 1,
+                    .patch = 2,
+                },
             },
-        } }));
+        }));
     }
 }
 

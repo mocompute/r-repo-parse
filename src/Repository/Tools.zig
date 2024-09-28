@@ -30,6 +30,20 @@ pub fn isRecommendedPackage(name: []const u8) bool {
     return false;
 }
 
+/// Return index into repository packages for a package which
+/// matches the requested constraint, or null.
+pub fn matchPackage(index: Index, package: NameAndVersionConstraint) ?usize {
+    return if (index.items.get(package.name)) |entry| switch (entry) {
+        .single => |e| if (package.version_constraint.satisfied(e.version)) e.index else null,
+        .multiple => |es| b: {
+            for (es.items) |e| {
+                if (package.version_constraint.satisfied(e.version)) break :b e.index;
+            }
+            break :b null;
+        },
+    } else null;
+}
+
 /// Given a slice of required packages, return a slice of missing
 /// dependencies, if any.
 pub fn unsatisfied(
