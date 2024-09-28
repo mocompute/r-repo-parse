@@ -95,12 +95,6 @@ const VersionIndex = struct { version: Version, index: usize };
 const Index = @This();
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const version = @import("../version.zig");
-const NameAndVersionConstraint = version.NameAndVersionConstraint;
-const Version = version.Version;
-const NameAndVersionConstraintHashMap = version.NameAndVersionConstraintHashMap;
 
-const repository = @import("../repository.zig");
-const Repository = repository.Repository;
-const isBasePackage = repository.isBasePackage;
-const isRecommendedPackage = repository.isRecommendedPackage;
+const Version = @import("../version.zig").Version;
+const Repository = @import("../repository.zig").Repository;
