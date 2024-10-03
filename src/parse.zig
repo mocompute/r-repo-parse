@@ -159,6 +159,7 @@ pub const Parser = struct {
         while (true) {
             token = self._tokenizer.next();
             switch (token.tag) {
+                .eof => return token,
                 .identifier => {
                     field.name = try self.lexeme(token);
                     const expect_colon = self._tokenizer.next();

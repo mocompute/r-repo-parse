@@ -121,6 +121,7 @@ pub fn read(self: *Repository, name: []const u8, source: []const u8) !usize {
     var result = empty_package;
 
     const nodes = parser.nodes.items;
+    var saw_field = false;
     var idx: usize = 0;
     var node: Parser.Node = undefined;
     while (true) : (idx += 1) {
@@ -128,15 +129,18 @@ pub fn read(self: *Repository, name: []const u8, source: []const u8) !usize {
 
         switch (node) {
             .eof => break,
-
+            .stanza => saw_field = false,
             .stanza_end => {
-                try self.packages.append(self.alloc, result);
-                result = empty_package;
+                if (saw_field) {
+                    // do not count empty stanzas
+                    try self.packages.append(self.alloc, result);
+                    result = empty_package;
+                    count += 1;
+                }
                 nav_list.clearRetainingCapacity();
-                count += 1;
             },
-
             .field => |field| {
+                saw_field = true;
                 if (std.mem.eql(u8, "Package", field.name)) {
                     result.name = try parsePackageName(nodes, &idx, &self.strings);
                 } else if (std.mem.eql(u8, "Version", field.name)) {
