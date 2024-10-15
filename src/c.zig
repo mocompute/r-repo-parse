@@ -195,25 +195,25 @@ pub export fn repo_index_deinit(index_: ?*anyopaque) void {
     }
 }
 
-/// Given a package name in a repo, return a newly allocated buffer
-/// with any packages whose constraints cannot be satisfied. The
-/// caller must call repo_name_version_buffer_destroy on the returned
-/// buffer.
-pub export fn repo_index_unsatisfied(
-    index_: *anyopaque,
-    repo_: *anyopaque,
-    root_ptr: [*]const u8,
-    root_len: usize,
-) ?*NameAndVersionBuffer {
-    const alloc = std.heap.c_allocator;
-    const index: *Repository.Index = @ptrCast(@alignCast(index_));
-    const repo: *Repository = @ptrCast(@alignCast(repo_));
+// /// Given a package name in a repo, return a newly allocated buffer
+// /// with any packages whose constraints cannot be satisfied. The
+// /// caller must call repo_name_version_buffer_destroy on the returned
+// /// buffer.
+// pub export fn repo_index_unsatisfied(
+//     index_: *anyopaque,
+//     repo_: *anyopaque,
+//     root_ptr: [*]const u8,
+//     root_len: usize,
+// ) ?*NameAndVersionBuffer {
+//     const alloc = std.heap.c_allocator;
+//     const index: *Repository.Index = @ptrCast(@alignCast(index_));
+//     const repo: *Repository = @ptrCast(@alignCast(repo_));
 
-    const res = index.unmetDependencies(alloc, repo.*, root_ptr[0..root_len]) catch {
-        return null;
-    };
+//     const res = index.unmetDependencies(alloc, repo.*, root_ptr[0..root_len]) catch {
+//         return null;
+//     };
 
-    return NameAndVersionBuffer.toC(alloc, res) catch {
-        return null;
-    };
-}
+//     return NameAndVersionBuffer.toC(alloc, res) catch {
+//         return null;
+//     };
+// }
