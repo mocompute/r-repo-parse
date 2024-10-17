@@ -63,10 +63,7 @@ test "parse" {
     defer parser.deinit();
     try parser.parse(source);
 
-    // std.debug.print("\nParser nodes:", .{});
-    // for (parser.nodes.items) |node| {
-    //     std.debug.print("  {s}", .{node});
-    // }
+    if (false) parser.debugPrint();
 }
 
 test "two stanzas" {
@@ -146,7 +143,6 @@ test "extra blank line" {
     defer tokenizer.deinit();
     while (true) {
         const token = tokenizer.next();
-        std.debug.print("{}: {?s}\n", .{ token, token.lexeme(source) });
         if (token.tag == .eof) break;
     }
 
@@ -258,23 +254,19 @@ test "tokenize description" {
         \\    miniUI, packrat, pak, R6, remotes, reticulate, rmarkdown, rstudioapi, shiny, testthat,
         \\    uuid, waldo, yaml, webfakes
     ;
-    // std.debug.print("\n", .{});
     var tokenizer = parse.Tokenizer.init(data);
+    defer tokenizer.deinit();
+
     while (true) {
         const token = tokenizer.next();
-        // std.debug.print("{}: {?s}\n", .{ token, token.lexeme(data) });
         if (token.tag == .eof) break;
     }
-
-    // try testTokenize(data, &.{ .identifier, .colon });
 }
 
 fn testTokenize(source: []const u8, expected_token_tags: []const parse.Token.Tag) !void {
-    // std.debug.print("\n", .{});
     var tokenizer = parse.Tokenizer.init(source);
     for (expected_token_tags) |expected_token_tag| {
         const token = tokenizer.next();
-        // std.debug.print("{}: {?s}\n", .{ token, token.lexeme(source) });
         try std.testing.expectEqual(expected_token_tag, token.tag);
     }
     // Last token should always be eof, even when the last token was invalid,

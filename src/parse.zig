@@ -114,6 +114,12 @@ pub const Parser = struct {
         return count;
     }
 
+    pub fn debugPrint(self: Parser) void {
+        for (self.nodes.items) |node| {
+            std.debug.print("  {s}", .{node});
+        }
+    }
+
     /// Parse source that was provided to init().
     pub fn parse(self: *Parser, source: []const u8) error{ ParseError, OutOfMemory, InvalidState }!void {
         // set up source and nodes buffer
@@ -159,7 +165,7 @@ pub const Parser = struct {
         while (true) {
             token = self._tokenizer.next();
             switch (token.tag) {
-                .eof => return token,
+                .eof, .end_field, .end_stanza => return token,
                 .identifier => {
                     field.name = try self.lexeme(token);
                     const expect_colon = self._tokenizer.next();
@@ -255,7 +261,12 @@ pub const Parser = struct {
                 .identifier_open_round => switch (token.tag) {
                     .less_than, .less_than_equal, .equal, .greater_than_equal, .greater_than => {
                         const ver = Version.parse(try self.lexeme(token)) catch {
-                            return self.parseError(token, "expected version number");
+                            // revert back to string
+                            node = Node{
+                                .string_node = .{ .value = self._source[start..token.loc.end] },
+                            };
+                            state = .string;
+                            continue;
                         };
                         const constraint: Constraint = switch (token.tag) {
                             .less_than => .lt,
@@ -271,11 +282,16 @@ pub const Parser = struct {
                         try self.appendNode(node);
 
                         const expect_close_round = self._tokenizer.next();
-                        if (expect_close_round.tag != .close_round)
-                            return self.parseError(expect_close_round, "expected close parenthesis");
+                        if (expect_close_round.tag != .close_round) {
+                            // switch back to string
+                            node = Node{
+                                .string_node = .{ .value = self._source[start..token.loc.end] },
+                            };
+                            state = .string;
+                        }
                     },
-                    .eof => {
-                        return self.parseError(token, "unexpected end of input");
+                    .eof, .end_field, .end_stanza => {
+                        return self.parseError(token, "unexpected end field, stanza or file: expected close_round");
                     },
                     else => {
                         // switch to string
@@ -366,10 +382,10 @@ pub const Token = struct {
             .end_field,
             .end_stanza,
             .eof,
-            .invalid,
             => null,
 
             .identifier,
+            .invalid,
             .string_literal,
             .less_than,
             .less_than_equal,
@@ -657,6 +673,12 @@ pub const Tokenizer = struct {
                         },
                         '\\' => {
                             state = .string_literal_backslash;
+                        },
+                        '\n' => {
+                            // Unterminated quotation in this file:
+                            // https://github.com/cran/drcte/blob/7835081e0abc507d935d7ffce647d5da918f5bf3/DESCRIPTION
+                            self.index += 1;
+                            break;
                         },
                         '"' => {
                             self.index += 1;

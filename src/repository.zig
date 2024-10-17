@@ -58,7 +58,13 @@ test "PACKAGES.gz" {
     // read entire repo
     var repo = try Repository.init(alloc);
     defer repo.deinit();
-    _ = try repo.read("test repo", source.?);
+    _ = repo.read("test repo", source.?) catch |err| switch (err) {
+        error.ParseError => {
+            std.debug.print("ERROR: ParseError: {s}\n", .{repo.parse_error.?.message});
+            return err;
+        },
+        else => return err,
+    };
     std.debug.print(
         "Parse to Repository ({} packages) = {}ms\n",
         .{ repo.packages.len, @divFloor(timer.lap(), 1_000_000) },
@@ -108,13 +114,22 @@ test "PACKAGES sanity check" {
     const path = "PACKAGES.gz";
     std.fs.cwd().access(path, .{}) catch return;
     const alloc = testing.allocator;
-    const source: ?[]const u8 = try mos.file.readFileMaybeGzip(alloc, path);
-    errdefer if (source) |s| alloc.free(s);
+    var source: ?[]const u8 = try mos.file.readFileMaybeGzip(alloc, path);
+    defer if (source) |s| alloc.free(s);
 
     var repo = try Repository.init(alloc);
     defer repo.deinit();
-    if (source) |s| _ = try repo.read("test", s);
-    if (source) |s| alloc.free(s);
+    if (source) |s| {
+        _ = repo.read("test", s) catch |err| switch (err) {
+            error.ParseError => {
+                std.debug.print("ERROR: ParseError: {s}\n", .{repo.parse_error.?.message});
+                return err;
+            },
+            else => return err,
+        };
+        alloc.free(s);
+        source = null;
+    }
 
     var index = try Repository.Index.init(repo);
     defer index.deinit();
@@ -129,10 +144,10 @@ test "PACKAGES sanity check" {
     var it = repo.iter();
     while (it.next()) |p| {
         const deps = try Repository.Tools.unsatisfied(index, alloc, p.depends);
-        const impo = try Repository.Tools.unsatisfied(index, alloc, p.imports);
-        const link = try Repository.Tools.unsatisfied(index, alloc, p.linkingTo);
         defer alloc.free(deps);
+        const impo = try Repository.Tools.unsatisfied(index, alloc, p.imports);
         defer alloc.free(impo);
+        const link = try Repository.Tools.unsatisfied(index, alloc, p.linkingTo);
         defer alloc.free(link);
 
         const res = try unsatisfied.getOrPut(p.name);

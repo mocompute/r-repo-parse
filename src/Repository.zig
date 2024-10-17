@@ -54,6 +54,7 @@ pub fn findPackage(
     comptime options: struct { max_results: u32 = 16 },
 ) error{OutOfMemory}![]Package {
     var out = try std.ArrayList(Package).initCapacity(alloc, options.max_results);
+    defer out.deinit();
     const slice = self.packages.slice();
     var index: usize = 0;
     for (slice.items(.name)) |n| {
@@ -145,27 +146,54 @@ pub fn read(self: *Repository, name: []const u8, source: []const u8) !usize {
                     result.name = try parsePackageName(nodes, &idx, &self.strings);
                 } else if (std.mem.eql(u8, "Version", field.name)) {
                     result.version = try parsePackageVersion(nodes, &idx);
-                    idx -= 1; // backtrack
+                    idx -= 1; // backtrack to parse version as string next
                     result.version_string = try parsePackageVersionString(nodes, &idx, &self.strings);
                 } else if (std.mem.eql(u8, "Depends", field.name)) {
+                    if (result.depends.len != 0) {
+                        return self.parseError(result.name);
+                    }
                     try parsePackages(nodes, &idx, &nav_list);
                     result.depends = try nav_list.toOwnedSlice();
+                    errdefer self.alloc.free(result.depends);
                 } else if (std.mem.eql(u8, "Suggests", field.name)) {
+                    if (result.suggests.len != 0) {
+                        return self.parseError(result.name);
+                    }
                     try parsePackages(nodes, &idx, &nav_list);
                     result.suggests = try nav_list.toOwnedSlice();
+                    errdefer self.alloc.free(result.suggests);
                 } else if (std.mem.eql(u8, "Imports", field.name)) {
+                    if (result.imports.len != 0) {
+                        return self.parseError(result.name);
+                    }
                     try parsePackages(nodes, &idx, &nav_list);
                     result.imports = try nav_list.toOwnedSlice();
+                    errdefer self.alloc.free(result.imports);
                 } else if (std.mem.eql(u8, "LinkingTo", field.name)) {
+                    if (result.linkingTo.len != 0) {
+                        return self.parseError(result.name);
+                    }
+
                     try parsePackages(nodes, &idx, &nav_list);
                     result.linkingTo = try nav_list.toOwnedSlice();
+                    errdefer self.alloc.free(result.linkingTo);
                 }
             },
 
             else => continue,
         }
     }
+    // in case package has not been added to self.packages, free it here
+    result.deinit(self.alloc);
     return count;
+}
+
+fn parseError(self: *Repository, message: []const u8) error{ParseError} {
+    self.parse_error = .{ .message = message, .token = .{
+        .tag = .invalid,
+        .loc = .{ .start = 0, .end = 0 },
+    } };
+    return error.ParseError;
 }
 
 fn parsePackageName(nodes: []Parser.Node, idx: *usize, strings: *StringStorage) ![]const u8 {
@@ -235,6 +263,19 @@ pub const Package = struct {
     suggests: []NameAndVersionConstraint = &.{},
     imports: []NameAndVersionConstraint = &.{},
     linkingTo: []NameAndVersionConstraint = &.{},
+
+    /// Deinit a package that was allocated. May be called multiple
+    /// times.
+    pub fn deinit(self: *Package, alloc: Allocator) void {
+        alloc.free(self.depends);
+        alloc.free(self.suggests);
+        alloc.free(self.imports);
+        alloc.free(self.linkingTo);
+        self.depends = &.{};
+        self.suggests = &.{};
+        self.imports = &.{};
+        self.linkingTo = &.{};
+    }
 };
 
 /// An iterator over a Repository.
