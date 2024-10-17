@@ -213,6 +213,7 @@ test "tokenize R" {
         \\    person("Kevin", "Ushey", role = c("aut", "cre"))
         \\    )
     ;
+    // TODO: not yet implemented
     try testTokenize(data, &.{
         .identifier,
         .colon,
@@ -220,19 +221,7 @@ test "tokenize R" {
         .open_round,
         .identifier,
         .open_round,
-        .string_literal,
-        .comma,
-        .string_literal,
-        .comma,
-        .identifier,
-        .equal,
-        .identifier,
-        .open_round,
-        .string_literal,
-        .comma,
-        .string_literal,
-        .close_round,
-        .close_round,
+        .unparsed,
         .close_round,
         .eof,
     });
@@ -265,9 +254,18 @@ test "tokenize description" {
 
 fn testTokenize(source: []const u8, expected_token_tags: []const parse.Token.Tag) !void {
     var tokenizer = parse.Tokenizer.init(source);
+    defer tokenizer.deinit();
     for (expected_token_tags) |expected_token_tag| {
         const token = tokenizer.next();
-        try std.testing.expectEqual(expected_token_tag, token.tag);
+        std.testing.expectEqual(expected_token_tag, token.tag) catch |err| {
+            var tok = parse.Tokenizer.init(source);
+            defer tok.deinit();
+            var t = tok.next();
+            while (t.tag != .eof) : (t = tok.next()) {
+                std.debug.print("{}\n", .{t});
+            }
+            return err;
+        };
     }
     // Last token should always be eof, even when the last token was invalid,
     // in which case the tokenizer is in an invalid state, which can only be

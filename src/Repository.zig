@@ -189,10 +189,14 @@ pub fn read(self: *Repository, name: []const u8, source: []const u8) !usize {
 }
 
 fn parseError(self: *Repository, message: []const u8) error{ParseError} {
-    self.parse_error = .{ .message = message, .token = .{
-        .tag = .invalid,
-        .loc = .{ .start = 0, .end = 0 },
-    } };
+    self.parse_error = .{
+        .message = message,
+        .token = .{
+            .tag = .invalid,
+            .loc = .{ .start = 0, .end = 0 },
+        },
+        .line = 0,
+    };
     return error.ParseError;
 }
 

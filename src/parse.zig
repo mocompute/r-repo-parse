@@ -47,6 +47,22 @@ pub const Parser = struct {
     pub const ParseError = struct {
         message: []const u8,
         token: Token,
+        line: usize,
+        pub fn debugPrint(self: ParseError, source: ?[]const u8) void {
+            if (source) |s| {
+                std.debug.print("ERROR: ParseError on line {}: {s}: {s}\n", .{
+                    self.line,
+                    self.message,
+                    s[self.token.loc.start..self.token.loc.end],
+                });
+            } else {
+                std.debug.print("ERROR: ParseError on line {}: {s}: {}\n", .{
+                    self.line,
+                    self.message,
+                    self.token,
+                });
+            }
+        }
     };
     pub const NodeList = std.ArrayList(Node);
     pub const RootNode = struct {};
@@ -220,6 +236,9 @@ pub const Parser = struct {
 
             switch (state) {
                 .start => switch (token.tag) {
+                    .invalid => {
+                        return self.parseError(token, "syntax error");
+                    },
                     .identifier => {
                         state = .identifier;
                         node = Node{
@@ -238,6 +257,9 @@ pub const Parser = struct {
                     },
                 },
                 .identifier => switch (token.tag) {
+                    .invalid => {
+                        return self.parseError(token, "syntax error");
+                    },
                     .comma => {
                         state = .start;
                         try self.appendNode(node);
@@ -259,6 +281,9 @@ pub const Parser = struct {
                     },
                 },
                 .identifier_open_round => switch (token.tag) {
+                    .invalid => {
+                        return self.parseError(token, "syntax error");
+                    },
                     .less_than, .less_than_equal, .equal, .greater_than_equal, .greater_than => {
                         const ver = Version.parse(try self.lexeme(token)) catch {
                             // revert back to string
@@ -302,6 +327,9 @@ pub const Parser = struct {
                     },
                 },
                 .string => switch (token.tag) {
+                    .invalid => {
+                        return self.parseError(token, "syntax error");
+                    },
                     .eof, .end_field, .end_stanza => {
                         try self.appendNode(node);
                         break;
@@ -342,8 +370,21 @@ pub const Parser = struct {
     }
 
     fn parseError(self: *Parser, token: Token, message: []const u8) Token {
-        self.parse_error = .{ .token = token, .message = message };
+        self.parse_error = .{
+            .token = token,
+            .message = message,
+            .line = self.locToLine(token.loc),
+        };
         return .{ .tag = .eof, .loc = token.loc };
+    }
+
+    fn locToLine(self: Parser, loc: Token.Loc) usize {
+        var count: usize = 1;
+        var index: usize = 0;
+        while (index < loc.start) : (index += 1) {
+            if (self._source[index] == '\n') count += 1;
+        }
+        return count;
     }
 };
 
@@ -360,6 +401,7 @@ pub const Token = struct {
 
     pub const Tag = enum {
         invalid,
+        unparsed,
         identifier,
         string_literal,
         colon,
@@ -386,6 +428,7 @@ pub const Token = struct {
 
             .identifier,
             .invalid,
+            .unparsed,
             .string_literal,
             .less_than,
             .less_than_equal,
@@ -436,8 +479,6 @@ pub const Tokenizer = struct {
         start,
         identifier,
         identifier_open_round,
-        string_literal,
-        string_literal_backslash,
         version_literal,
         version_literal_dot,
         version_literal_minus,
@@ -492,10 +533,6 @@ pub const Tokenizer = struct {
                         state = .version_literal;
                         result.tag = .string_literal;
                     },
-                    '"' => {
-                        state = .string_literal;
-                        result.tag = .string_literal;
-                    },
                     '(' => {
                         result.tag = .open_round;
                         self.index += 1;
@@ -533,12 +570,6 @@ pub const Tokenizer = struct {
                         state = .unparsed;
                     },
                 },
-                .unparsed => {
-                    switch (c) {
-                        '\n' => break,
-                        else => continue,
-                    }
-                },
                 .open_angle => {
                     switch (c) {
                         ' ', '\r', '\n', '\t' => {
@@ -555,7 +586,7 @@ pub const Tokenizer = struct {
                             self.index -= 1; // backtrack
                         },
                         else => {
-                            state = .invalid;
+                            state = .unparsed;
                         },
                     }
                 },
@@ -571,7 +602,7 @@ pub const Tokenizer = struct {
                             self.index -= 1; // backtrack
                         },
                         else => {
-                            state = .invalid;
+                            state = .unparsed;
                         },
                     }
                 },
@@ -591,7 +622,7 @@ pub const Tokenizer = struct {
                             self.index -= 1; // backtrack
                         },
                         else => {
-                            state = .invalid;
+                            state = .unparsed;
                         },
                     }
                 },
@@ -607,7 +638,7 @@ pub const Tokenizer = struct {
                             self.index -= 1; // backtrack
                         },
                         else => {
-                            state = .invalid;
+                            state = .unparsed;
                         },
                     }
                 },
@@ -623,7 +654,7 @@ pub const Tokenizer = struct {
                             self.index -= 1; // backtrack
                         },
                         else => {
-                            state = .invalid;
+                            state = .unparsed;
                         },
                     }
                 },
@@ -661,49 +692,12 @@ pub const Tokenizer = struct {
                         break;
                     },
                 },
-                .string_literal => {
-                    switch (c) {
-                        0 => {
-                            if (self.index != self.buffer.len) {
-                                state = .invalid;
-                                continue;
-                            }
-                            result.tag = .invalid;
-                            break;
-                        },
-                        '\\' => {
-                            state = .string_literal_backslash;
-                        },
-                        '\n' => {
-                            // Unterminated quotation in this file:
-                            // https://github.com/cran/drcte/blob/7835081e0abc507d935d7ffce647d5da918f5bf3/DESCRIPTION
-                            self.index += 1;
-                            break;
-                        },
-                        '"' => {
-                            self.index += 1;
-                            break;
-                        },
-                        0x01...0x08, 0x0b...0x1f, 0x7f => {
-                            state = .invalid;
-                        },
-                        else => continue,
-                    }
-                },
-                .string_literal_backslash => {
-                    switch (c) {
-                        0, '\n' => {
-                            result.tag = .invalid;
-                            break;
-                        },
-                        else => {
-                            state = .string_literal;
-                        },
-                    }
-                },
                 .version_literal => {
                     switch (c) {
-                        '\n', ')' => break,
+                        '\n' => {
+                            break;
+                        },
+                        ')' => break,
                         'r' => {
                             state = .version_literal_r;
                         },
@@ -729,7 +723,7 @@ pub const Tokenizer = struct {
                             state = .version_literal;
                         },
                         else => {
-                            result.tag = .invalid;
+                            result.tag = .unparsed;
                             break;
                         },
                     }
@@ -740,7 +734,7 @@ pub const Tokenizer = struct {
                             state = .version_literal;
                         },
                         else => {
-                            result.tag = .invalid;
+                            result.tag = .unparsed;
                             break;
                         },
                     }
@@ -751,7 +745,7 @@ pub const Tokenizer = struct {
                             state = .version_literal_r_digit;
                         },
                         else => {
-                            result.tag = .invalid;
+                            result.tag = .unparsed;
                             break;
                         },
                     }
@@ -763,7 +757,7 @@ pub const Tokenizer = struct {
                         },
                         '0'...'9' => continue,
                         else => {
-                            result.tag = .invalid;
+                            result.tag = .unparsed;
                             break;
                         },
                     }
@@ -772,7 +766,9 @@ pub const Tokenizer = struct {
                 .identifier => {
                     switch (c) {
                         'a'...'z', 'A'...'Z', '_', '0'...'9' => continue,
-                        '\n', ':', ',', '(', ')' => break,
+                        '\n', ':', ',', '(', ')' => {
+                            break;
+                        },
 
                         ' ', '\r', '\t' => {
                             break;
@@ -802,6 +798,17 @@ pub const Tokenizer = struct {
                     },
                     '\n' => {
                         result.tag = .invalid;
+                        break;
+                    },
+                    else => continue,
+                },
+                .unparsed => switch (c) {
+                    0 => if (self.index == self.buffer.len) {
+                        result.tag = .unparsed;
+                        break;
+                    },
+                    '\n' => {
+                        result.tag = .unparsed;
                         break;
                     },
                     else => continue,

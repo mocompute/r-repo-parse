@@ -38,11 +38,7 @@ test "PACKAGES.gz" {
     parser.parse(source.?) catch |err| switch (err) {
         error.ParseError => {
             if (parser.parse_error) |perr| {
-                std.debug.print("ERROR: ParseError: {s}: {}:{s}\n", .{
-                    perr.message,
-                    perr.token,
-                    source.?[perr.token.loc.start..perr.token.loc.end],
-                });
+                perr.debugPrint(source.?);
             }
         },
         error.OutOfMemory => {
@@ -60,7 +56,7 @@ test "PACKAGES.gz" {
     defer repo.deinit();
     _ = repo.read("test repo", source.?) catch |err| switch (err) {
         error.ParseError => {
-            std.debug.print("ERROR: ParseError: {s}\n", .{repo.parse_error.?.message});
+            repo.parse_error.?.debugPrint(source);
             return err;
         },
         else => return err,
@@ -122,7 +118,7 @@ test "PACKAGES sanity check" {
     if (source) |s| {
         _ = repo.read("test", s) catch |err| switch (err) {
             error.ParseError => {
-                std.debug.print("ERROR: ParseError: {s}\n", .{repo.parse_error.?.message});
+                repo.parse_error.?.debugPrint(source.?);
                 return err;
             },
             else => return err,
