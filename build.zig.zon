@@ -17,15 +17,15 @@
 
 .{
     .name = "r-repo-parse",
-    .version = "0.3.2",
+    .version = "0.3.3",
     .minimum_zig_version = "0.14.0",
     .dependencies = .{
         .common = .{
             .path = "src/common",
         },
         .mos = .{
-            .url = "https://codeberg.org/mocompute/mos/archive/main.tar.gz",
-            .hash = "1220b6da547644c2792c9490e3a813978c90b6aae8519b056a13ba40af1968cff8e7",
+            .url = "https://github.com/mocompute/mos/archive/refs/tags/v0.1.0.tar.gz",
+            .hash = "12205df0b3cb159faf3b377f19f33ebe5453c2252eede8eae6cbfb2ed008a4cfaa20",
         },
     },
 
