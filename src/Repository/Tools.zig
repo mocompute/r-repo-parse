@@ -110,5 +110,5 @@ const Index = @import("Index.zig");
 const version = @import("../version.zig");
 const NameAndVersionConstraint = version.NameAndVersionConstraint;
 
-const repository = @import("../repository.zig");
+const repository = @import("../repository_tools.zig");
 const Repository = repository.Repository;

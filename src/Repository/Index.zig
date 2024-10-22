@@ -97,4 +97,4 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 
 const Version = @import("../version.zig").Version;
-const Repository = @import("../repository.zig").Repository;
+const Repository = @import("../repository_tools.zig").Repository;

@@ -31,7 +31,7 @@ const testing = std.testing;
 
 // These are mainly here for the generated docs.
 pub const version = @import("version.zig");
-pub const repository = @import("repository.zig");
+pub const repository = @import("repository_tools.zig");
 pub const parse = @import("parse.zig");
 
 const Repository = repository.Repository;
