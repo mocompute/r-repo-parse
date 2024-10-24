@@ -120,6 +120,10 @@ pub fn read(self: *Repository, name: []const u8, source: []const u8) !usize {
 
     const empty_package: Package = .{ .repository = try self.strings.append(name) };
     var result = empty_package;
+    // Note: result may have a different value by the time this defer
+    // is called before exiting this scope. The deinit is needed to
+    // avoid memory leaks in case of errors.
+    errdefer result.deinit(self.alloc);
 
     const nodes = parser.nodes.items;
     var saw_field = false;
@@ -154,21 +158,18 @@ pub fn read(self: *Repository, name: []const u8, source: []const u8) !usize {
                     }
                     try parsePackages(nodes, &idx, &nav_list);
                     result.depends = try nav_list.toOwnedSlice();
-                    errdefer self.alloc.free(result.depends);
                 } else if (std.mem.eql(u8, "Suggests", field.name)) {
                     if (result.suggests.len != 0) {
                         return self.parseError(result.name);
                     }
                     try parsePackages(nodes, &idx, &nav_list);
                     result.suggests = try nav_list.toOwnedSlice();
-                    errdefer self.alloc.free(result.suggests);
                 } else if (std.mem.eql(u8, "Imports", field.name)) {
                     if (result.imports.len != 0) {
                         return self.parseError(result.name);
                     }
                     try parsePackages(nodes, &idx, &nav_list);
                     result.imports = try nav_list.toOwnedSlice();
-                    errdefer self.alloc.free(result.imports);
                 } else if (std.mem.eql(u8, "LinkingTo", field.name)) {
                     if (result.linkingTo.len != 0) {
                         return self.parseError(result.name);
@@ -176,15 +177,12 @@ pub fn read(self: *Repository, name: []const u8, source: []const u8) !usize {
 
                     try parsePackages(nodes, &idx, &nav_list);
                     result.linkingTo = try nav_list.toOwnedSlice();
-                    errdefer self.alloc.free(result.linkingTo);
                 }
             },
 
             else => continue,
         }
     }
-    // in case package has not been added to self.packages, free it here
-    result.deinit(self.alloc);
     return count;
 }
 

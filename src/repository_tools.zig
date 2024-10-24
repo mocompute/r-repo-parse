@@ -340,6 +340,42 @@ test "versions with minus" {
     }
 }
 
+test "duplicate depends/imports/linkingto returns ParseError" {
+    const alloc = std.testing.allocator;
+    const source1 =
+        \\Package: foo
+        \\Depends: val1
+        \\Depends: val1
+        \\
+    ;
+    const source2 =
+        \\Package: foo
+        \\Imports: val1
+        \\Imports: val1
+        \\
+    ;
+    const source3 =
+        \\Package: foo
+        \\LinkingTo: val1
+        \\LinkingTo: val1
+        \\
+    ;
+
+    const source4 =
+        \\Package: foo
+        \\Suggests: val1
+        \\Suggests: val1
+        \\
+    ;
+
+    var repo = try Repository.init(alloc);
+    defer repo.deinit();
+    try testing.expectError(error.ParseError, repo.read("test", source1));
+    try testing.expectError(error.ParseError, repo.read("test", source2));
+    try testing.expectError(error.ParseError, repo.read("test", source3));
+    try testing.expectError(error.ParseError, repo.read("test", source4));
+}
+
 const std = @import("std");
 
 const mos = @import("mos");
