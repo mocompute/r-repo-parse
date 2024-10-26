@@ -23,7 +23,7 @@ const std = @import("std");
 const testing = std.testing;
 const Allocator = std.mem.Allocator;
 
-const StringStorage = @import("common").StringStorage;
+const StringStorage = @import("string_storage.zig").StringStorage;
 
 const version = @import("version.zig");
 const Version = version.Version;

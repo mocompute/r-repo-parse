@@ -381,8 +381,7 @@ const std = @import("std");
 const mos = @import("mos");
 const testing = std.testing;
 
-const common = @import("common");
-const StringStorage = common.StringStorage;
+const StringStorage = @import("string_storage.zig").StringStorage;
 
 const parse = @import("parse.zig");
 const Parser = parse.Parser;

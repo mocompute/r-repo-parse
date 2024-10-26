@@ -39,11 +39,6 @@ pub fn build(b: *Build) !void {
 
     // -- begin dependencies -------------------------------------------------
 
-    const common = b.dependency("common", .{
-        .target = target,
-        .optimize = optimize,
-    }).module("common");
-
     const mos = b.dependency("mos", .{
         .target = target,
         .optimize = optimize,
@@ -71,7 +66,6 @@ pub fn build(b: *Build) !void {
             // https://ziggit.dev/t/strip-option-in-build-zig/1371/8
             .strip = true,
         });
-        lib.root_module.addImport("common", common);
         lib.linkLibC();
 
         // just take the first one, it doesn't matter which
@@ -98,7 +92,6 @@ pub fn build(b: *Build) !void {
         .optimize = optimize,
     });
     mod.addImport("mos", mos);
-    mod.addImport("common", common);
 
     // -- end module ---------------------------------------------------------
 
@@ -109,7 +102,6 @@ pub fn build(b: *Build) !void {
         .target = target,
         .optimize = optimize,
     });
-    lib_unit_tests.root_module.addImport("common", common);
     lib_unit_tests.root_module.addImport("mos", mos);
     lib_unit_tests.linkLibC();
 

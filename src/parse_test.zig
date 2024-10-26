@@ -18,8 +18,7 @@
 const std = @import("std");
 const testing = std.testing;
 const parse = @import("./parse.zig");
-const common = @import("common");
-const StringStorage = common.StringStorage;
+const StringStorage = @import("string_storage.zig").StringStorage;
 
 test "parse" {
     const source =
