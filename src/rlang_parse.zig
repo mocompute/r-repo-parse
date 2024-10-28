@@ -33,6 +33,20 @@ const Token = union(enum) {
             else => true,
         };
     }
+
+    pub fn format(self: Token, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+        _ = fmt;
+        _ = options;
+        try switch (self) {
+            .open_round => writer.print("(", .{}),
+            .close_round => writer.print(")", .{}),
+            .identifier => |x| writer.print("{s}", .{x}),
+            .string => |x| writer.print("\"{s}\"", .{x}),
+            .equal => writer.print("=", .{}),
+            .comma => writer.print(",", .{}),
+            .eof => writer.print("<EOF>", .{}),
+        };
+    }
 };
 
 const Tokenizer = struct {
@@ -79,12 +93,15 @@ const Tokenizer = struct {
             switch (state) {
                 .start => switch (c) {
                     'A'...'Z', 'a'...'z', '_', '.' => state = .identifier,
-                    '"' => state = .string,
+                    '"' => {
+                        string.start = self.index; // skip the open quote
+                        state = .string;
+                    },
                     '(' => return .{ .ok = .open_round },
                     ')' => return .{ .ok = .close_round },
                     '=' => return .{ .ok = .equal },
                     ',' => return .{ .ok = .comma },
-                    '\n', '\r', '\t', ' ' => continue,
+                    '\n', '\r', '\t', ' ' => string.start = self.index, // skip whitespace
                     else => return .{ .err = .{ .bad_token = cpos } },
                 },
                 .string => switch (c) {
@@ -122,6 +139,8 @@ const Tokenizer = struct {
     }
 };
 
+// -- tests --------------------------------------------------------
+
 test "tokenize" {
     const alloc = std.testing.allocator;
     const source =
@@ -138,6 +157,57 @@ test "tokenize" {
     try tokenizeExpect(alloc, &tokenizer, &.{
         .{ .identifier = "c" },
         .open_round,
+        .close_round,
+    });
+}
+
+test "tokenize 2" {
+    const alloc = std.testing.allocator;
+    const source =
+        \\        c(
+        \\    person("Caio", "Lente", , "clente@abj.org.br", role = c("aut", "cre"),
+        \\           comment = c(ORCID = "0000-0001-8473-069X")),
+        \\  )
+        \\
+        \\
+    ;
+    var strings = try StringStorage.init(alloc, std.heap.page_allocator);
+    defer strings.deinit();
+
+    var tokenizer = Tokenizer.init(source, &strings);
+    defer tokenizer.deinit();
+
+    try tokenizeExpect(alloc, &tokenizer, &.{
+        .{ .identifier = "c" },
+        .open_round,
+        .{ .identifier = "person" },
+        .open_round,
+        .{ .string = "Caio" },
+        .comma,
+        .{ .string = "Lente" },
+        .comma,
+        .comma,
+        .{ .string = "clente@abj.org.br" },
+        .comma,
+        .{ .identifier = "role" },
+        .equal,
+        .{ .identifier = "c" },
+        .open_round,
+        .{ .string = "aut" },
+        .comma,
+        .{ .string = "cre" },
+        .close_round,
+        .comma,
+        .{ .identifier = "comment" },
+        .equal,
+        .{ .identifier = "c" },
+        .open_round,
+        .{ .identifier = "ORCID" },
+        .equal,
+        .{ .string = "0000-0001-8473-069X" },
+        .close_round,
+        .close_round,
+        .comma,
         .close_round,
     });
 }
