@@ -15,6 +15,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+// -- tokenizer ----------------------------------------------------
+
 const Token = union(enum) {
     open_round,
     close_round,
@@ -25,6 +27,7 @@ const Token = union(enum) {
     eof,
 
     pub fn eq(self: Token, other: Token) bool {
+        // copied from std.testing.expectEqualInner
         const Tag = std.meta.Tag(@TypeOf(self));
         if (@as(Tag, self) != @as(Tag, other)) return false;
         return switch (self) {
@@ -62,13 +65,22 @@ const Tokenizer = struct {
         self.* = undefined;
     }
 
-    const Result = union(enum) {
-        ok: Token,
-        err: union(enum) {
-            empty,
-            unterminated_string,
-            bad_token: usize,
-        },
+    pub const Result = union(enum) {
+        ok: TokenLoc,
+        err: ErrLoc,
+    };
+    pub const TokenLoc = struct {
+        token: Token,
+        loc: usize,
+    };
+    pub const ErrLoc = struct {
+        err: Err,
+        loc: usize,
+    };
+    pub const Err = enum {
+        empty,
+        unterminated_string,
+        bad_token,
     };
 
     pub fn next(self: *Tokenizer) error{OutOfMemory}!Result {
@@ -97,18 +109,18 @@ const Tokenizer = struct {
                         string.start = self.index; // skip the open quote
                         state = .string;
                     },
-                    '(' => return .{ .ok = .open_round },
-                    ')' => return .{ .ok = .close_round },
-                    '=' => return .{ .ok = .equal },
-                    ',' => return .{ .ok = .comma },
+                    '(' => return ok(.open_round, cpos),
+                    ')' => return ok(.close_round, cpos),
+                    '=' => return ok(.equal, cpos),
+                    ',' => return ok(.comma, cpos),
                     '\n', '\r', '\t', ' ' => string.start = self.index, // skip whitespace
-                    else => return .{ .err = .{ .bad_token = cpos } },
+                    else => return err(.bad_token, cpos),
                 },
                 .string => switch (c) {
                     '"' => {
                         string.end = cpos;
                         const s = try self.strings.append(self.buffer[string.start..string.end]);
-                        return .{ .ok = .{ .string = s } };
+                        return ok(.{ .string = s }, cpos);
                     },
                     else => continue,
                 },
@@ -118,7 +130,7 @@ const Tokenizer = struct {
                         self.index -= 1; // backtrack
                         string.end = cpos;
                         const s = try self.strings.append(self.buffer[string.start..string.end]);
-                        return .{ .ok = .{ .identifier = s } };
+                        return ok(.{ .identifier = s }, cpos);
                     },
                 },
             }
@@ -126,16 +138,168 @@ const Tokenizer = struct {
 
         // end of input reached
         switch (state) {
-            .start => return .{ .ok = .eof },
+            .start => return ok(.eof, self.index),
             .identifier => {
                 string.end = self.index;
                 const s = try self.strings.append(self.buffer[string.start..string.end]);
-                return .{ .ok = .{ .identifier = s } };
+                return ok(.{ .identifier = s }, string.start);
             },
             .string => {
-                return .{ .err = .unterminated_string };
+                return err(.unterminated_string, string.start);
             },
         }
+    }
+
+    fn ok(tok: Token, loc: usize) Result {
+        return .{ .ok = .{ .token = tok, .loc = loc } };
+    }
+    fn err(e: Err, loc: usize) Result {
+        return .{ .err = .{ .err = e, .loc = loc } };
+    }
+};
+
+// -- parser -------------------------------------------------------
+
+const Node = union(enum) {
+    null,
+    identifier: []const u8,
+    string: []const u8,
+    named_argument: NamedArgument,
+    function_call: FunctionCall,
+
+    pub fn eql(self: Node, other: Node) bool {
+        // copied from std.testing.expectEqualInner
+        const Tag = std.meta.Tag(@TypeOf(self));
+        if (@as(Tag, self) != @as(Tag, other)) return false;
+        return switch (self) {
+            .identifier => std.mem.eql(u8, self.identifier, other.identifier),
+            .string => std.mem.eql(u8, self.string, other.string),
+            .named_argument => |na| na.eql(other.named_argument),
+            .function_call => |fc| fc.eql(other.function_call),
+            else => true,
+        };
+    }
+};
+
+const NamedArgument = struct {
+    name: []const u8,
+    value: union(enum) {
+        null,
+        identifier: []const u8,
+        string: []const u8,
+        function_call: FunctionCall,
+    },
+
+    pub fn eql(self: NamedArgument, other: NamedArgument) bool {
+        const Tag = std.meta.Tag(@TypeOf(self.value));
+        if (@as(Tag, self.value) != @as(Tag, other.value)) return false;
+        if (!std.mem.eql(u8, self.name, other.name)) return false;
+        return switch (self.value) {
+            .identifier => |i| std.mem.eql(u8, i, other.value.identifier),
+            .string => |s| std.mem.eql(u8, s, other.value.string),
+            .function_call => |fc| fc.eql(other.value.function_call),
+            else => true,
+        };
+    }
+};
+const FunctionCall = struct {
+    name: []const u8,
+    positional: []const FunctionArg,
+    named: []const NamedArgument,
+
+    pub fn eql(self: FunctionCall, other: FunctionCall) bool {
+        if (!std.mem.eql(u8, self.name, other.name)) return false;
+        return std.meta.eql(self.positional, other.positional) and std.meta.eql(self.named, other.named);
+    }
+};
+
+const FunctionArg = union(enum) {
+    null,
+    identifier: []const u8,
+    string: []const u8,
+    function_call: FunctionCall,
+};
+
+const Parser = struct {
+    alloc: Allocator,
+    tokenizer: Tokenizer,
+
+    pub fn init(alloc: Allocator, buffer: []const u8, strings: *StringStorage) Parser {
+        return .{
+            .alloc = alloc,
+            .tokenizer = Tokenizer.init(buffer, strings),
+        };
+    }
+
+    pub fn deinit(self: *Parser) void {
+        self.tokenizer.deinit();
+        self.* = undefined;
+    }
+
+    pub const Result = union(enum) {
+        ok: NodeLoc,
+        err: ErrLoc,
+    };
+    pub const NodeLoc = struct {
+        node: Node,
+        loc: usize,
+    };
+    pub const ErrLoc = struct {
+        err: Err,
+        loc: usize,
+    };
+    pub const Err = enum {
+        expected_identifier,
+    };
+
+    pub fn parse(self: *Parser) error{ OutOfMemory, TokenizeError, ParseError }!Result {
+        const fc = try self.parseFunctionCall();
+        return .{ .ok = .{ .node = .{ .function_call = fc }, .loc = 0 } };
+    }
+
+    fn parseFunctionCall(self: *Parser) !FunctionCall {
+        const name = try self.parseIdentifier();
+
+        try self.expectToken(.open_round);
+
+        // FIXME not implemented
+
+        try self.expectToken(.close_round);
+
+        return .{
+            .name = name,
+            .positional = &.{},
+            .named = &.{},
+        };
+    }
+
+    fn parseIdentifier(self: *Parser) ![]const u8 {
+        switch (try self.tokenizer.next()) {
+            .ok => |tok_loc| {
+                switch (tok_loc.token) {
+                    .identifier => |name| return name,
+                    else => {
+                        std.debug.print("Unexpected token at loc {}: {}\n", .{
+                            tok_loc.loc,
+                            tok_loc.token,
+                        });
+                        return error.ParseError;
+                    },
+                }
+            },
+            .err => |err_loc| {
+                std.debug.print("Tokenizer error at loc {}: {}\n", .{ err_loc.loc, err_loc.err });
+                return error.ParseError;
+            },
+        }
+    }
+
+    fn expectToken(self: *Parser, tok: Token) !void {
+        const res = try self.tokenizer.next();
+        if (res == .ok and res.ok.token.eq(tok)) return;
+
+        std.debug.print("Unexpected token: {}\n", .{res});
+        return error.ParseError;
     }
 };
 
@@ -212,17 +376,69 @@ test "tokenize 2" {
     });
 }
 
+test "parse" {
+    const alloc = std.testing.allocator;
+    const source =
+        \\        c(
+        \\    person("Caio", "Lente", , "clente@abj.org.br", role = c("aut", "cre"),
+        \\           comment = c(ORCID = "0000-0001-8473-069X")),
+        \\  )
+        \\
+        \\
+    ;
+    var strings = try StringStorage.init(alloc, std.heap.page_allocator);
+    defer strings.deinit();
+
+    var parser = Parser.init(alloc, source, &strings);
+    defer parser.deinit();
+
+    // FIXME incomplete, not implemented
+    try parseExpect(&parser, .{ .function_call = .{
+        .name = "c",
+        .positional = &.{.{
+            .function_call = .{
+                .name = "person",
+                .positional = &.{
+                    .{ .string = "Caio" },
+                    .{ .string = "Lente" },
+                    .null,
+                    .{ .string = "clente@abj.org.br" },
+                },
+                .named = &.{},
+            },
+        }},
+        .named = &.{},
+    } });
+}
+
+test "parse 1" {
+    const alloc = std.testing.allocator;
+    const source = "c()";
+
+    var strings = try StringStorage.init(alloc, std.heap.page_allocator);
+    defer strings.deinit();
+
+    var parser = Parser.init(alloc, source, &strings);
+    defer parser.deinit();
+
+    try parseExpect(&parser, .{ .function_call = .{
+        .name = "c",
+        .positional = &.{},
+        .named = &.{},
+    } });
+}
+
 fn tokenizeExpect(alloc: Allocator, tokenizer: *Tokenizer, expect: []const Token) !void {
     var toks = std.ArrayList(Token).init(alloc);
     defer toks.deinit();
     while (true) {
         switch (try tokenizer.next()) {
-            .ok => |tok| {
-                switch (tok) {
+            .ok => |token_loc| {
+                switch (token_loc.token) {
                     .eof => break,
                     else => {
-                        try toks.append(tok);
-                        // std.debug.print("Token: {}\n", .{tok});
+                        try toks.append(token_loc.token);
+                        // std.debug.print("Token: {}\n", .{token_loc.token});
                     },
                 }
             },
@@ -247,6 +463,20 @@ fn expectTokens(expect: []const Token, actual: []const Token) !void {
             std.debug.print("Expected: {}, actual: {}\n", .{ e, a });
             return error.ExpectFailed;
         }
+    }
+}
+
+fn parseExpect(parser: *Parser, expect: Node) !void {
+    const res = try parser.parse();
+    switch (res) {
+        .ok => |node_loc| {
+            const node = node_loc.node;
+            try std.testing.expect(expect.eql(node));
+        },
+        .err => |err_loc| {
+            std.debug.print("Unexpected parse error at loc {}: {}\n", .{ err_loc.loc, err_loc.err });
+            return error.ParseError;
+        },
     }
 }
 

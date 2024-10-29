@@ -96,7 +96,6 @@ pub fn build(b: *Build) !void {
     // -- end module ---------------------------------------------------------
 
     // -- begin test ---------------------------------------------------------
-
     const lib_unit_tests = b.addTest(.{
         .root_source_file = b.path("src/root.zig"),
         .target = target,
@@ -112,8 +111,19 @@ pub fn build(b: *Build) !void {
     // running the unit tests.
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_lib_unit_tests.step);
-
     // -- end test -----------------------------------------------------------
+
+    // -- begin check ---------------------------------------------------------
+    const check_exe = b.addTest(.{
+        .root_source_file = b.path("src/root.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    check_exe.root_module.addImport("mos", mos);
+
+    const check = b.step("check", "Check if root compiles.");
+    check.dependOn(&check_exe.step);
+    // -- end check -----------------------------------------------------------
 
     // -- begin generated documentation ------------------------------------
 
