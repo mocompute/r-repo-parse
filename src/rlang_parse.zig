@@ -199,12 +199,7 @@ const Node = union(enum) {
 
 const NamedArgument = struct {
     name: []const u8,
-    value: union(enum) {
-        null,
-        identifier: []const u8,
-        string: []const u8,
-        function_call: FunctionCall,
-    },
+    value: FunctionArg,
 
     pub fn eql(self: NamedArgument, other: NamedArgument) bool {
         const Tag = std.meta.Tag(@TypeOf(self.value));
@@ -217,17 +212,11 @@ const NamedArgument = struct {
             else => true,
         };
     }
+
     pub fn format(self: NamedArgument, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
         _ = fmt;
         _ = options;
-        try writer.print("(named-argument {s} ", .{self.name});
-        try switch (self.value) {
-            .null => writer.print("null", .{}),
-            .identifier => |s| writer.print("(identifer {s})", .{s}),
-            .string => |s| writer.print("(string \"{s}\")", .{s}),
-            .function_call => |fc| writer.print("{}", .{fc}),
-        };
-        try writer.print(")", .{});
+        try writer.print("(named-argument {s} {})", .{ self.name, self.value });
     }
 };
 const FunctionCall = struct {
@@ -581,6 +570,11 @@ test "parse" {
     defer parser.deinit();
 
     try doParseDebug(&parser);
+
+    // Outputs:
+    // RESULT: 5: (funcall c (funcall person (string "Caio") (string "Lente") null (string "clente@abj.org.br") (named-argument role (funcall c (string "aut") (string "cre"))) (named-argument comment (funcall c (named-argument ORCID (string "0000-0001-8473-069X"))))))
+    // EOF: 142
+
 }
 
 test "parse 1" {
