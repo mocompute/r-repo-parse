@@ -150,6 +150,10 @@ const Tokenizer = struct {
         }
     }
 
+    pub fn back(self: *Tokenizer) void {
+        // FIXME - can we backtrack to previous token? Doubtful with this design.
+    }
+
     fn ok(tok: Token, loc: usize) Result {
         return .{ .ok = .{ .token = tok, .loc = loc } };
     }
@@ -223,11 +227,13 @@ const FunctionArg = union(enum) {
 const Parser = struct {
     alloc: Allocator,
     tokenizer: *Tokenizer,
+    strings: *StringStorage,
 
     pub fn init(alloc: Allocator, tokenizer: *Tokenizer, strings: *StringStorage) Parser {
         return .{
             .alloc = alloc,
             .tokenizer = tokenizer,
+            .strings = strings,
         };
     }
 
@@ -251,58 +257,130 @@ const Parser = struct {
         eof,
         expected_identifier,
         expected_argument,
+        expected_funcall,
         unexpected_token,
         tokenizer_error: Tokenizer.Err,
     };
 
-    pub fn parse(self: *Parser) error{ OutOfMemory, TokenizeError, ParseError }!Result {
+    pub fn next(self: *Parser) error{ OutOfMemory, TokenizeError, ParseError }!Result {
+        const FuncallState = struct {
+            name: []const u8,
+            positional: std.ArrayList(FunctionArg),
+            named: std.ArrayList(NamedArgument),
+        };
         const State = union(enum) {
             start,
-            open_round,
             identifier: []const u8,
-            funcall: []const u8,
-            identifier_equal,
-            value,
+            funcall_start: FuncallState,
+            funcall_identifier: struct {
+                state: FuncallState,
+                identifier: []const u8,
+            },
+            funcall_identifier_equal: struct {
+                state: FuncallState,
+                identifier: []const u8,
+            },
         };
-        var state: State = start;
+        var state: State = .start;
 
-        var positional = std.ArrayList(FunctionArg).init(self.alloc);
-        defer positional.deinit();
-        var named = std.ArrayList(NamedArgument).init(self.alloc);
-        defer named.deinit();
+        std.debug.print("Entering next()\n", .{});
+        defer std.debug.print("Exiting next()\n", .{});
 
         while (true) {
-            const res = try self.tokenizer.next();
-            if (res == .err) return err(.{ .tokenizer_error = res.err.err }, res.err.loc);
-            const tok = res.ok.token;
-            const loc = res.ok.loc;
-
+            std.debug.print("  state = {}\n", .{state});
             switch (state) {
-                .start => switch (tok) {
-                    .identifier => |s| state = .{ .identifier = s },
-                    .open_round, .close_round, .string, .equal, .comma => return err(.expected_identifier, loc),
-                    .eof => return err(.eof, loc),
+                .start => {
+                    const res = try self.tokenizer.next();
+                    std.debug.print("    start token = {}\n", .{res});
+                    if (res == .err) return tokenizer_err(res.err);
+                    switch (res.ok.token) {
+                        .identifier => |s| state = .{ .identifier = s },
+                        .eof => return err(.eof, res.ok.loc),
+                        .open_round,
+                        .close_round,
+                        .string,
+                        .equal,
+                        .comma,
+                        => return err(.expected_identifier, res.ok.loc),
+                    }
                 },
-                .identifier => |s| switch (tok) {
-                    .open_round => state = .{ .funcall = s }, // it's a funcall
-                    .eof => return err(.eof, loc),
-                    else => return err(unexpected_token, loc);
+                .identifier => |s| {
+                    const res = try self.tokenizer.next();
+                    if (res == .err) return tokenizer_err(res.err);
+                    switch (res.ok.token) {
+                        .open_round => state = .{
+                            .funcall_start = .{
+                                .name = s,
+                                .positional = std.ArrayList(FunctionArg).init(self.alloc),
+                                .named = std.ArrayList(NamedArgument).init(self.alloc),
+                            },
+                        },
+                        .eof => return ok(.{ .identifier = s }, res.ok.loc),
+                        else => return err(.unexpected_token, res.ok.loc),
+                    }
                 },
-                .funcall => |s| switch(tok) {
-                    // FIXME
-                }
+                .funcall_start => |*st| {
+                    const res = try self.tokenizer.next();
+                    if (res == .err) return tokenizer_err(res.err);
+                    switch (res.ok.token) {
+                        .identifier => |s| state = .{
+                            .funcall_identifier = .{
+                                .state = st.*,
+                                .identifier = s,
+                            },
+                        },
+                        .string => |s| try st.positional.append(.{ .string = s }),
+                        else => return err(.unexpected_token, res.ok.loc),
+                    }
+                },
+                .funcall_identifier => |*fist| {
+                    const res = try self.tokenizer.next();
+                    if (res == .err) return tokenizer_err(res.err);
+                    switch (res.ok.token) {
+                        .comma => {
+                            try fist.state.positional.append(.{ .identifier = fist.identifier });
+                            state = .{ .funcall_start = fist.state };
+                        },
+                        .equal => {
+                            state = .{ .funcall_identifier_equal = .{
+                                .state = fist.state,
+                                .identifier = fist.identifier,
+                            } };
+                        },
+                        .open_round => {
+                            // funcall as positional argument.
+                            // backtrack twice (comma and identifier) and parse expression
+                            self.tokenizer.back();
+                            self.tokenizer.back();
+                            const inner = try self.next();
+                            if (inner == .err) return inner;
+
+                            const fc: FunctionCall =
+                                switch (inner.ok.node) {
+                                .function_call => |fc| fc,
+                                else => return err(.expected_funcall, res.ok.loc),
+                            };
+                            return ok(.{ .function_call = fc }, inner.ok.loc);
+                        },
+                        else => return err(.unexpected_token, res.ok.loc),
+                    }
+                },
+                .funcall_identifier_equal => |fiest| {
+                    // parse next expression
+                    const res = try self.next();
+                    if (res == .err) return res;
+
+                    var na: NamedArgument = .{ .name = fiest.identifier, .value = .null };
+                    na.value = switch (res.ok.node) {
+                        .null => .null,
+                        .identifier => |s| .{ .identifier = s },
+                        .string => |s| .{ .string = s },
+                        .function_call => |fc| .{ .function_call = fc },
+                        else => return err(.expected_argument, res.ok.loc),
+                    };
+                },
             }
         }
-
-        return switch (res.ok.token) {
-            .open_round, .close_round, .equal, .comma => err(.expected_identifier, res.ok.loc),
-            .identifier => |name| {
-                const fc = try self.parseFunctionCall(name);
-                return ok(.{ .function_call = fc }, res.ok.loc);
-            },
-            .string => |s| ok(.{ .string = s }, res.ok.loc),
-            .eof => err(.eof, res.ok.loc),
-        };
     }
 
     fn ok(node: Node, loc: usize) Result {
@@ -311,102 +389,8 @@ const Parser = struct {
     fn err(e: Err, loc: usize) Result {
         return .{ .err = .{ .err = e, .loc = loc } };
     }
-
-    fn parseFunctionCall(self: *Parser, name: []const u8) !Result {
-        const State = enum {
-            start,
-            open_round,
-            identifier,
-            identifier_equal,
-            value,
-        };
-        var state: State = start;
-
-        var positional = std.ArrayList(FunctionArg).init(self.alloc);
-        defer positional.deinit();
-        var named = std.ArrayList(NamedArgument).init(self.alloc);
-        defer named.deinit();
-
-        while (true) {
-            const res = try self.tokenizer.next();
-            if (res == .err) return err(.{ .tokenizer_error = res.err.err }, res.err.loc);
-            const tok = res.ok.token;
-            const loc = res.ok.loc;
-
-            var funcall: FunctionCall = .{ .name = name, .positional = .{}, .named = .{} };
-
-            switch (state) {
-                .start => switch (tok) {
-                    .open_round => state = .open_round,
-                    .close_round => {
-                        funcall.positional = positional.toOwnedSlice();
-                        funcall.named = named.toOwnedSlice();
-                        return ok(.{ .function_call = funcall }, loc);
-                    },
-                },
-            }
-        }
-
-        try self.expectToken(.open_round);
-
-        while (true) {
-            const res = try self.tokenizer.next();
-            switch (res) {
-                .ok => |tok_loc| {
-                    switch (tok_loc.token) {
-                        .open_round => {
-                            return err(.expected_argument, tok_loc.loc);
-                        },
-                        close_round => {},
-                        identifier => |s| {},
-                        string => |s| {},
-                        equal => {},
-                        comma => {},
-                        eof => {},
-                    }
-                },
-                .err => |err_loc| return err(.{ .tokenizer_error = err_loc.err }, err_loc.loc),
-            }
-        }
-
-        // FIXME not implemented
-
-        try self.expectToken(.close_round);
-
-        return .{
-            .name = name,
-            .positional = &.{},
-            .named = &.{},
-        };
-    }
-
-    fn parseIdentifier(self: *Parser) ![]const u8 {
-        switch (try self.tokenizer.next()) {
-            .ok => |tok_loc| {
-                switch (tok_loc.token) {
-                    .identifier => |name| return name,
-                    else => {
-                        std.debug.print("Unexpected token at loc {}: {}\n", .{
-                            tok_loc.loc,
-                            tok_loc.token,
-                        });
-                        return error.ParseError;
-                    },
-                }
-            },
-            .err => |err_loc| {
-                std.debug.print("Tokenizer error at loc {}: {}\n", .{ err_loc.loc, err_loc.err });
-                return error.ParseError;
-            },
-        }
-    }
-
-    fn expectToken(self: *Parser, tok: Token) !void {
-        const res = try self.tokenizer.next();
-        if (res == .ok and res.ok.token.eq(tok)) return;
-
-        std.debug.print("Unexpected token: {}\n", .{res});
-        return error.ParseError;
+    fn tokenizer_err(tok_err: Tokenizer.ErrLoc) Result {
+        return .{ .err = .{ .err = .{ .tokenizer_error = tok_err.err }, .loc = tok_err.loc } };
     }
 };
 
@@ -486,8 +470,8 @@ test "tokenize 2" {
 test "parse" {
     const alloc = std.testing.allocator;
     const source =
-        \\        c(
-        \\    person("Caio", "Lente", , "clente@abj.org.br", role = c("aut", "cre"),
+        \\c(
+        \\person("Caio", "Lente", , "clente@abj.org.br", role = c("aut", "cre"),
         \\           comment = c(ORCID = "0000-0001-8473-069X")),
         \\  )
         \\
@@ -496,7 +480,10 @@ test "parse" {
     var strings = try StringStorage.init(alloc, std.heap.page_allocator);
     defer strings.deinit();
 
-    var parser = Parser.init(alloc, source, &strings);
+    var tokenizer = Tokenizer.init(source, &strings);
+    defer tokenizer.deinit();
+
+    var parser = Parser.init(alloc, &tokenizer, &strings);
     defer parser.deinit();
 
     // FIXME incomplete, not implemented
@@ -525,7 +512,10 @@ test "parse 1" {
     var strings = try StringStorage.init(alloc, std.heap.page_allocator);
     defer strings.deinit();
 
-    var parser = Parser.init(alloc, source, &strings);
+    var tokenizer = Tokenizer.init(source, &strings);
+    defer tokenizer.deinit();
+
+    var parser = Parser.init(alloc, &tokenizer, &strings);
     defer parser.deinit();
 
     try parseExpect(&parser, .{ .function_call = .{
@@ -574,7 +564,7 @@ fn expectTokens(expect: []const Token, actual: []const Token) !void {
 }
 
 fn parseExpect(parser: *Parser, expect: Node) !void {
-    const res = try parser.parse();
+    const res = try parser.next();
     switch (res) {
         .ok => |node_loc| {
             const node = node_loc.node;
