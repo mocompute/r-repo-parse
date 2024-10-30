@@ -174,13 +174,11 @@ const Node = union(enum) {
         const Tag = std.meta.Tag(@TypeOf(self));
         if (@as(Tag, self) != @as(Tag, other)) return false;
         return switch (self) {
-            .identifier => std.mem.eql(u8, self.identifier, other.identifier),
-            .string => std.mem.eql(u8, self.string, other.string),
-            .named_argument => |na| na.eql(other.named_argument),
+            .function_arg => |fa| fa.eql(other.function_arg),
             .function_call => |fc| fc.eql(other.function_call),
-            else => true,
         };
     }
+
     pub fn format(self: Node, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
         _ = fmt;
         _ = options;
@@ -191,28 +189,6 @@ const Node = union(enum) {
     }
 };
 
-const NamedArgument = struct {
-    name: []const u8,
-    value: FunctionArg,
-
-    pub fn eql(self: NamedArgument, other: NamedArgument) bool {
-        const Tag = std.meta.Tag(@TypeOf(self.value));
-        if (@as(Tag, self.value) != @as(Tag, other.value)) return false;
-        if (!std.mem.eql(u8, self.name, other.name)) return false;
-        return switch (self.value) {
-            .identifier => |i| std.mem.eql(u8, i, other.value.identifier),
-            .string => |s| std.mem.eql(u8, s, other.value.string),
-            .function_call => |fc| fc.eql(other.value.function_call),
-            else => true,
-        };
-    }
-
-    pub fn format(self: NamedArgument, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
-        _ = fmt;
-        _ = options;
-        try writer.print("(named-argument {s} {})", .{ self.name, self.value });
-    }
-};
 const FunctionCall = struct {
     name: []const u8,
     positional: []const FunctionArg,
@@ -222,6 +198,7 @@ const FunctionCall = struct {
         if (!std.mem.eql(u8, self.name, other.name)) return false;
         return std.meta.eql(self.positional, other.positional) and std.meta.eql(self.named, other.named);
     }
+
     pub fn format(self: FunctionCall, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
         _ = fmt;
         _ = options;
@@ -249,6 +226,17 @@ const FunctionArg = union(enum) {
         };
     }
 
+    pub fn eql(self: FunctionArg, other: FunctionArg) bool {
+        const Tag = std.meta.Tag(@TypeOf(self));
+        if (@as(Tag, self) != @as(Tag, other)) return false;
+        return switch (self) {
+            .null => true,
+            .identifier => |i| std.mem.eql(u8, i, other.identifier),
+            .string => |s| std.mem.eql(u8, s, other.string),
+            .function_call => |fc| fc.eql(other.function_call),
+        };
+    }
+
     pub fn format(self: FunctionArg, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
         _ = fmt;
         _ = options;
@@ -258,6 +246,22 @@ const FunctionArg = union(enum) {
             .string => |s| writer.print("(string \"{s}\")", .{s}),
             .function_call => |fc| writer.print("{}", .{fc}),
         };
+    }
+};
+
+const NamedArgument = struct {
+    name: []const u8,
+    value: FunctionArg,
+
+    pub fn eql(self: NamedArgument, other: NamedArgument) bool {
+        if (!std.mem.eql(u8, self.name, other.name)) return false;
+        return self.value.eql(other.value);
+    }
+
+    pub fn format(self: NamedArgument, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+        _ = fmt;
+        _ = options;
+        try writer.print("(named-argument {s} {})", .{ self.name, self.value });
     }
 };
 
