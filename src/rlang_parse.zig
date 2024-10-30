@@ -184,6 +184,17 @@ const Node = union(enum) {
             else => true,
         };
     }
+    pub fn format(self: Node, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+        _ = fmt;
+        _ = options;
+        try switch (self) {
+            .null => writer.print("null", .{}),
+            .identifier => |s| writer.print("(identifier {s})", .{s}),
+            .string => |s| writer.print("(string \"{s}\")", .{s}),
+            .named_argument => |na| writer.print("(named-argument {})", .{na}),
+            .function_call => |fc| writer.print("{}", .{fc}),
+        };
+    }
 };
 
 const NamedArgument = struct {
@@ -206,6 +217,18 @@ const NamedArgument = struct {
             else => true,
         };
     }
+    pub fn format(self: NamedArgument, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+        _ = fmt;
+        _ = options;
+        try writer.print("(named-argument {s} ", .{self.name});
+        try switch (self.value) {
+            .null => writer.print("null", .{}),
+            .identifier => |s| writer.print("(identifer {s})", .{s}),
+            .string => |s| writer.print("(string \"{s}\")", .{s}),
+            .function_call => |fc| writer.print("{}", .{fc}),
+        };
+        try writer.print(")", .{});
+    }
 };
 const FunctionCall = struct {
     name: []const u8,
@@ -216,6 +239,18 @@ const FunctionCall = struct {
         if (!std.mem.eql(u8, self.name, other.name)) return false;
         return std.meta.eql(self.positional, other.positional) and std.meta.eql(self.named, other.named);
     }
+    pub fn format(self: FunctionCall, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+        _ = fmt;
+        _ = options;
+        try writer.print("(funcall {s}", .{self.name});
+        for (self.positional) |fa| {
+            try writer.print(" {}", .{fa});
+        }
+        for (self.named) |na| {
+            try writer.print(" {}", .{na});
+        }
+        try writer.print(")", .{});
+    }
 };
 
 const FunctionArg = union(enum) {
@@ -223,6 +258,17 @@ const FunctionArg = union(enum) {
     identifier: []const u8,
     string: []const u8,
     function_call: FunctionCall,
+
+    pub fn format(self: FunctionArg, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+        _ = fmt;
+        _ = options;
+        try switch (self) {
+            .null => writer.print("null", .{}),
+            .identifier => |s| writer.print("(identifer {s})", .{s}),
+            .string => |s| writer.print("(string \"{s}\")", .{s}),
+            .function_call => |fc| writer.print("{}", .{fc}),
+        };
+    }
 };
 
 const Parser = struct {
@@ -408,7 +454,8 @@ const Parser = struct {
                                 .function_call => |fc| fc,
                                 else => return err(.expected_funcall, res.ok.loc),
                             };
-                            return ok(.{ .function_call = fc }, inner.ok.loc);
+
+                            try fist.state.positional.append(.{ .function_call = fc });
                         },
                         else => return err(.unexpected_token, res.ok.loc),
                     }
