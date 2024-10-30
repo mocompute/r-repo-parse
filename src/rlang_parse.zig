@@ -26,7 +26,8 @@ const Token = union(enum) {
     comma,
     eof,
 
-    pub fn eq(self: Token, other: Token) bool {
+    /// True if tokens are structurally equal. Strings are compared.
+    pub fn eql(self: Token, other: Token) bool {
         // copied from std.testing.expectEqualInner
         const Tag = std.meta.Tag(@TypeOf(self));
         if (@as(Tag, self) != @as(Tag, other)) return false;
@@ -169,6 +170,7 @@ const Node = union(enum) {
     function_arg: FunctionArg,
     function_call: FunctionCall,
 
+    /// True if structurally equal.
     pub fn eql(self: Node, other: Node) bool {
         // copied from std.testing.expectEqualInner
         const Tag = std.meta.Tag(@TypeOf(self));
@@ -194,9 +196,18 @@ const FunctionCall = struct {
     positional: []const FunctionArg,
     named: []const NamedArgument,
 
+    /// True if structurally equal
     pub fn eql(self: FunctionCall, other: FunctionCall) bool {
         if (!std.mem.eql(u8, self.name, other.name)) return false;
-        return std.meta.eql(self.positional, other.positional) and std.meta.eql(self.named, other.named);
+        if (self.positional.len != other.positional.len or self.named.len != other.named.len) return false;
+
+        for (self.positional, other.positional) |a, b| {
+            if (!a.eql(b)) return false;
+        }
+        for (self.named, other.named) |a, b| {
+            if (!a.eql(b)) return false;
+        }
+        return true;
     }
 
     pub fn format(self: FunctionCall, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
@@ -646,7 +657,7 @@ fn expectTokens(expect: []const Token, actual: []const Token) !void {
     // behaviour, so the above if test is not strictly needed for a
     // test function
     for (expect, actual) |e, a| {
-        if (!e.eq(a)) {
+        if (!e.eql(a)) {
             std.debug.print("Expected: {}, actual: {}\n", .{ e, a });
             return error.ExpectFailed;
         }
