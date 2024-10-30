@@ -456,6 +456,7 @@ const Parser = struct {
                             };
 
                             try fist.state.positional.append(.{ .function_call = fc });
+                            state = .{ .funcall_start = fist.state };
                         },
                         else => return err(.unexpected_token, res.ok.loc),
                     }
