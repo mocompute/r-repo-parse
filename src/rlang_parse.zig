@@ -166,10 +166,7 @@ const Tokenizer = struct {
 // -- parser -------------------------------------------------------
 
 const Node = union(enum) {
-    null,
-    identifier: []const u8,
-    string: []const u8,
-    named_argument: NamedArgument,
+    function_arg: FunctionArg,
     function_call: FunctionCall,
 
     pub fn eql(self: Node, other: Node) bool {
@@ -188,10 +185,7 @@ const Node = union(enum) {
         _ = fmt;
         _ = options;
         try switch (self) {
-            .null => writer.print("null", .{}),
-            .identifier => |s| writer.print("(identifier {s})", .{s}),
-            .string => |s| writer.print("(string \"{s}\")", .{s}),
-            .named_argument => |na| writer.print("(named-argument {})", .{na}),
+            .function_arg => |fa| writer.print("{}", .{fa}),
             .function_call => |fc| writer.print("{}", .{fc}),
         };
     }
@@ -247,6 +241,13 @@ const FunctionArg = union(enum) {
     identifier: []const u8,
     string: []const u8,
     function_call: FunctionCall,
+
+    pub fn fromNode(node: Node) FunctionArg {
+        return switch (node) {
+            .function_arg => |fa| fa,
+            .function_call => |fc| .{ .function_call = fc },
+        };
+    }
 
     pub fn format(self: FunctionArg, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
         _ = fmt;
@@ -376,11 +377,11 @@ const Parser = struct {
                         .comma => state = .{ .funcall_comma = st.* },
                         .close_round => {
                             // end of funcall
-                            return ok(.{ .function_call = .{
+                            return ok_function_call(.{
                                 .name = st.name.name,
                                 .positional = try st.positional.toOwnedSlice(),
                                 .named = try st.named.toOwnedSlice(),
-                            } }, st.name.loc);
+                            }, st.name.loc);
                         },
                         else => return err(.unexpected_token, res.ok.loc),
                     }
@@ -449,14 +450,7 @@ const Parser = struct {
                         .name = fiest.identifier.name,
                         .value = .null,
                     };
-                    na.value = switch (res.ok.node) {
-                        .null => .null,
-                        .identifier => |s| .{ .identifier = s },
-                        .string => |s| .{ .string = s },
-                        .function_call => |fc| .{ .function_call = fc },
-                        else => return err(.expected_argument, res.ok.loc),
-                    };
-
+                    na.value = FunctionArg.fromNode(res.ok.node);
                     try fiest.state.named.append(na);
                     state = .{ .funcall_start = fiest.state };
                 },
@@ -464,8 +458,11 @@ const Parser = struct {
         }
     }
 
-    fn ok(node: Node, loc: usize) Result {
-        return .{ .ok = .{ .node = node, .loc = loc } };
+    fn ok(node: FunctionArg, loc: usize) Result {
+        return .{ .ok = .{ .node = .{ .function_arg = node }, .loc = loc } };
+    }
+    fn ok_function_call(node: FunctionCall, loc: usize) Result {
+        return .{ .ok = .{ .node = .{ .function_call = node }, .loc = loc } };
     }
     fn err(e: Err, loc: usize) Result {
         return .{ .err = .{ .err = e, .loc = loc } };
