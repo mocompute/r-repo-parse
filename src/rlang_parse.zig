@@ -337,15 +337,10 @@ const Parser = struct {
         };
         var state: State = .start;
 
-        std.debug.print("Entering next()\n", .{});
-        defer std.debug.print("Exiting next()\n", .{});
-
         while (true) {
-            std.debug.print("  state = {}\n", .{state});
             switch (state) {
                 .start => {
                     const res = try self.tokenizer.next();
-                    std.debug.print("    start token = {}\n", .{res});
                     if (res == .err) return tokenizer_err(res.err);
                     switch (res.ok.token) {
                         .identifier => |s| state = .{
@@ -381,10 +376,8 @@ const Parser = struct {
                 .funcall_start => |*st| {
                     const res = try self.tokenizer.next();
                     if (res == .err) return tokenizer_err(res.err);
-                    std.debug.print("  token = {}\n", .{res.ok});
                     switch (res.ok.token) {
                         .identifier => |s| {
-                            std.debug.print("    funcall_start found identifier {}\n", .{res.ok});
                             state = .{ .funcall_identifier = .{
                                 .state = st.*,
                                 .identifier = .{ .name = s, .loc = res.ok.loc },
@@ -416,7 +409,6 @@ const Parser = struct {
                             state = .{ .funcall_start = st.* };
                         },
                         else => {
-                            std.debug.print("    funcall_comma backtracking to {}\n", .{res.ok.loc});
                             self.tokenizer.back(res.ok.loc);
                             state = .{ .funcall_start = st.* };
                         },
@@ -442,10 +434,8 @@ const Parser = struct {
                         .open_round => {
                             // funcall as positional argument.
                             // backtrack and parse expression
-                            std.debug.print("    backtracking to location {}\n", .{fist.identifier.loc});
                             self.tokenizer.back(fist.identifier.loc);
 
-                            std.debug.print("  recurse from funcall_identifier .open_round\n", .{});
                             const inner = try self.next();
                             if (inner == .err) return inner;
 
@@ -463,13 +453,8 @@ const Parser = struct {
                 },
                 .funcall_identifier_equal => |*fiest| {
                     // parse next expression
-                    std.debug.print(
-                        "  recurse from funcall_identifier_equal: {s}\n",
-                        .{fiest.identifier.name},
-                    );
                     const res = try self.next();
                     if (res == .err) return res;
-                    std.debug.print("  return from recurse got {}\n", .{res.ok});
 
                     var na: NamedArgument = .{
                         .name = fiest.identifier.name,
@@ -576,9 +561,11 @@ test "tokenize 2" {
 
 test "parse" {
     const alloc = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(alloc);
+    defer arena.deinit();
     const source =
-        \\c(
-        \\person("Caio", "Lente", , "clente@abj.org.br", role = c("aut", "cre"),
+        \\     c(
+        \\  person("Caio", "Lente", , "clente@abj.org.br", role = c("aut", "cre"),
         \\           comment = c(ORCID = "0000-0001-8473-069X")),
         \\  )
         \\
@@ -590,32 +577,16 @@ test "parse" {
     var tokenizer = Tokenizer.init(source, &strings);
     defer tokenizer.deinit();
 
-    var parser = Parser.init(alloc, &tokenizer, &strings);
+    var parser = Parser.init(arena.allocator(), &tokenizer, &strings);
     defer parser.deinit();
 
     try doParseDebug(&parser);
-
-    // FIXME incomplete, not implemented
-    // try parseExpect(&parser, .{ .function_call = .{
-    //     .name = "c",
-    //     .positional = &.{.{
-    //         .function_call = .{
-    //             .name = "person",
-    //             .positional = &.{
-    //                 .{ .string = "Caio" },
-    //                 .{ .string = "Lente" },
-    //                 .null,
-    //                 .{ .string = "clente@abj.org.br" },
-    //             },
-    //             .named = &.{},
-    //         },
-    //     }},
-    //     .named = &.{},
-    // } });
 }
 
 test "parse 1" {
     const alloc = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(alloc);
+    defer arena.deinit();
     const source = "c()";
 
     var strings = try StringStorage.init(alloc, std.heap.page_allocator);
@@ -624,21 +595,14 @@ test "parse 1" {
     var tokenizer = Tokenizer.init(source, &strings);
     defer tokenizer.deinit();
 
-    var parser = Parser.init(alloc, &tokenizer, &strings);
+    var parser = Parser.init(arena.allocator(), &tokenizer, &strings);
     defer parser.deinit();
 
     try doParseDebug(&parser);
-
-    // try parseExpect(&parser, .{ .function_call = .{
-    //     .name = "c",
-    //     .positional = &.{},
-    //     .named = &.{},
-    // } });
 }
 
 fn doParseDebug(parser: *Parser) !void {
     while (true) {
-        std.debug.print("Calling parser.next()\n", .{});
         const res = try parser.next();
         switch (res) {
             .err => |e| {
@@ -691,20 +655,6 @@ fn expectTokens(expect: []const Token, actual: []const Token) !void {
             std.debug.print("Expected: {}, actual: {}\n", .{ e, a });
             return error.ExpectFailed;
         }
-    }
-}
-
-fn parseExpect(parser: *Parser, expect: Node) !void {
-    const res = try parser.next();
-    switch (res) {
-        .ok => |node_loc| {
-            const node = node_loc.node;
-            try std.testing.expect(expect.eql(node));
-        },
-        .err => |err_loc| {
-            std.debug.print("Unexpected parse error at loc {}: {}\n", .{ err_loc.loc, err_loc.err });
-            return error.ParseError;
-        },
     }
 }
 
