@@ -58,7 +58,7 @@ test "parse" {
 
     var strings = try StringStorage.init(alloc, std.heap.page_allocator);
     defer strings.deinit();
-    var parser = try parse.Parser.init(alloc, &strings);
+    var parser = parse.Parser.init(alloc, &strings);
     defer parser.deinit();
     try parser.parse(source);
 
@@ -76,7 +76,7 @@ test "two stanzas" {
     const alloc = std.testing.allocator;
     var strings = try StringStorage.init(alloc, std.heap.page_allocator);
     defer strings.deinit();
-    var parser = try parse.Parser.init(alloc, &strings);
+    var parser = parse.Parser.init(alloc, &strings);
     defer parser.deinit();
     try parser.parse(source);
 
@@ -106,7 +106,7 @@ test "package and version" {
     const alloc = std.testing.allocator;
     var strings = try StringStorage.init(alloc, std.heap.page_allocator);
     defer strings.deinit();
-    var parser = try parse.Parser.init(alloc, &strings);
+    var parser = parse.Parser.init(alloc, &strings);
     defer parser.deinit();
     try parser.parse(source);
 
@@ -145,7 +145,7 @@ test "extra blank line" {
         if (token.tag == .eof) break;
     }
 
-    var parser = try parse.Parser.init(alloc, &strings);
+    var parser = parse.Parser.init(alloc, &strings);
     defer parser.deinit();
     try parser.parse(source);
 

@@ -53,7 +53,7 @@ const Token = union(enum) {
     }
 };
 
-const Tokenizer = struct {
+pub const Tokenizer = struct {
     buffer: []const u8 = &.{},
     index: usize = 0,
     strings: *StringStorage,
@@ -191,7 +191,7 @@ const Node = union(enum) {
     }
 };
 
-const FunctionCall = struct {
+pub const FunctionCall = struct {
     name: []const u8,
     positional: []const FunctionArg,
     named: []const NamedArgument,
@@ -276,11 +276,12 @@ const NamedArgument = struct {
     }
 };
 
-const Parser = struct {
+pub const Parser = struct {
     alloc: Allocator,
     tokenizer: *Tokenizer,
     strings: *StringStorage,
 
+    /// Provide an ArenaAllocator, because this parser leaks memory.
     pub fn init(alloc: Allocator, tokenizer: *Tokenizer, strings: *StringStorage) Parser {
         return .{
             .alloc = alloc,

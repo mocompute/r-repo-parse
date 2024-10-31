@@ -106,7 +106,7 @@ pub const Parser = struct {
         }
     };
 
-    pub fn init(alloc: Allocator, string_storage: *StringStorage) !Parser {
+    pub fn init(alloc: Allocator, string_storage: *StringStorage) Parser {
         return .{
             .alloc = alloc,
             .strings = string_storage,

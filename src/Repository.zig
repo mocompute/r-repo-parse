@@ -98,7 +98,7 @@ pub fn findLatestPackage(
 /// of packages found.
 pub fn read(self: *Repository, name: []const u8, source: []const u8) !usize {
     var count: usize = 0;
-    var parser = try parse.Parser.init(self.alloc, &self.strings);
+    var parser = parse.Parser.init(self.alloc, &self.strings);
     defer parser.deinit();
     parser.parse(source) catch |err| switch (err) {
         error.ParseError => |e| {

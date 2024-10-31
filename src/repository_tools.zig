@@ -33,7 +33,7 @@ test "PACKAGES.gz" {
 
     var strings = try StringStorage.init(alloc, std.heap.page_allocator);
     defer strings.deinit();
-    var parser = try parse.Parser.init(alloc, &strings);
+    var parser = parse.Parser.init(alloc, &strings);
     defer parser.deinit();
     parser.parse(source.?) catch |err| switch (err) {
         error.ParseError => {
@@ -301,7 +301,7 @@ test "versions with minus" {
     {
         var strings = try StringStorage.init(alloc, std.heap.page_allocator);
         defer strings.deinit();
-        var parser = try parse.Parser.init(alloc, &strings);
+        var parser = parse.Parser.init(alloc, &strings);
         defer parser.deinit();
         parser.parse(data) catch |err| switch (err) {
             error.ParseError => |e| {
