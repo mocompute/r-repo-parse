@@ -512,13 +512,14 @@ test "tokenize" {
 test "tokenize 2" {
     const alloc = std.testing.allocator;
     const source =
-        \\        c(
-        \\    person("Caio", "Lente", , "clente@abj.org.br", role = c("aut", "cre"),
+        \\     c(
+        \\  person("Caio", "Lente", , "clente@abj.org.br", role = c("aut", "cre"),
         \\           comment = c(ORCID = "0000-0001-8473-069X")),
         \\  )
         \\
         \\
     ;
+
     var strings = try StringStorage.init(alloc, std.heap.page_allocator);
     defer strings.deinit();
 
@@ -565,11 +566,15 @@ test "parse" {
     var arena = std.heap.ArenaAllocator.init(alloc);
     defer arena.deinit();
     const source =
-        \\     c(
-        \\  person("Caio", "Lente", , "clente@abj.org.br", role = c("aut", "cre"),
+        \\         c(
+        \\    person("Caio", "Lente", , "clente@abj.org.br", role = c("aut", "cre"),
         \\           comment = c(ORCID = "0000-0001-8473-069X")),
+        \\    person("Julio", "Trecenti", , "julio.trecenti@gmail.com", role = "aut",
+        \\           comment = c(ORCID = "0000-0002-1680-6389")),
+        \\    person("Katerine", "Witkoski", , "kwitkoski@abj.org.br", role = "ctb",
+        \\           comment = c(ORCID = "0000-0002-3691-6569")),
+        \\    person("Associação Brasileira de Jurimetria", role = c("cph", "fnd"))
         \\  )
-        \\
         \\
     ;
     var strings = try StringStorage.init(alloc, std.heap.page_allocator);
@@ -584,8 +589,8 @@ test "parse" {
     try doParseDebug(&parser);
 
     // Outputs:
-    // RESULT: 5: (funcall c (funcall person (string "Caio") (string "Lente") null (string "clente@abj.org.br") (named-argument role (funcall c (string "aut") (string "cre"))) (named-argument comment (funcall c (named-argument ORCID (string "0000-0001-8473-069X"))))))
-    // EOF: 142
+    // RESULT: 9: (funcall c (funcall person (string "Caio") (string "Lente") null (string "clente@abj.org.br") (named-argument role (funcall c (string "aut") (string "cre"))) (named-argument comment (funcall c (named-argument ORCID (string "0000-0001-8473-069X"))))) (funcall person (string "Julio") (string "Trecenti") null (string "julio.trecenti@gmail.com") (named-argument role (string "aut")) (named-argument comment (funcall c (named-argument ORCID (string "0000-0002-1680-6389"))))) (funcall person (string "Katerine") (string "Witkoski") null (string "kwitkoski@abj.org.br") (named-argument role (string "ctb")) (named-argument comment (funcall c (named-argument ORCID (string "0000-0002-3691-6569"))))) (funcall person (string "Associação Brasileira de Jurimetria") (named-argument role (funcall c (string "cph") (string "fnd")))))
+    // EOF: 486
 
 }
 
