@@ -112,7 +112,6 @@ const AuthorsDB = struct {
         // each person function allocates a new person id. we don't
         // deduplicate because anyway how?
         const person_id = self.nextPersonId();
-        const strings = &self.person_strings;
 
         var pos: usize = 1;
         for (fc.positional) |fa| {
@@ -181,12 +180,7 @@ const AuthorsDB = struct {
             }
 
             if (string_value) |s| {
-                try strings.put(strings.data.nextId(), .{
-                    .package_id = package_id,
-                    .person_id = person_id,
-                    .attribute_id = attr_id,
-                    .value = s,
-                });
+                try self.putNewString(package_id, person_id, attr_id, s);
             }
 
             // if (roleValue) |r| {}
@@ -196,15 +190,29 @@ const AuthorsDB = struct {
 
         for (fc.named) |na| {
             var attr_id: AttributeId = undefined;
-            var string_value: ?[]const u8 = null;
             // var roleValue: ?Role = null;
 
             if (std.ascii.eqlIgnoreCase("comment", na.name)) {
                 attr_id = try self.attributeId("comment");
-                string_value = switch (na.value) {
-                    .string => |s| s,
-                    else => null,
-                };
+                switch (na.value) {
+                    .string => |s| {
+                        try self.putNewString(package_id, person_id, attr_id, s);
+                    },
+                    .function_call => |comment_fc| {
+                        if (std.ascii.eqlIgnoreCase("c", comment_fc.name)) {
+                            for (comment_fc.named) |comment_na| {
+                                attr_id = try self.attributeId(comment_na.name);
+                                switch (comment_na.value) {
+                                    .string => |comment_s| {
+                                        try self.putNewString(package_id, person_id, attr_id, comment_s);
+                                    },
+                                    else => unreachable,
+                                }
+                            }
+                        }
+                    },
+                    else => unreachable,
+                }
             }
         } // named arguments
     }
@@ -215,6 +223,36 @@ const AuthorsDB = struct {
             try self.attribute_names.put(id, name);
             break :b id;
         };
+    }
+
+    fn putNewString(
+        self: *AuthorsDB,
+        package_id: PackageId,
+        person_id: PersonId,
+        attribute_id: AttributeId,
+        value: []const u8,
+    ) !void {
+        try self.person_strings.put(self.person_strings.data.nextId(), .{
+            .package_id = package_id,
+            .person_id = person_id,
+            .attribute_id = attribute_id,
+            .value = value,
+        });
+    }
+
+    fn putNewRole(
+        self: *AuthorsDB,
+        package_id: PackageId,
+        person_id: PersonId,
+        attribute_id: AttributeId,
+        value: Role,
+    ) !void {
+        try self.person_roles.put(self.person_roles.data.nextId(), .{
+            .package_id = package_id,
+            .person_id = person_id,
+            .attribute_id = attribute_id,
+            .value = value,
+        });
     }
 };
 
