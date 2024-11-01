@@ -16,20 +16,312 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 alloc: Allocator,
+db: AuthorsDB,
 
-const Person = struct {
-    role: Role,
-    family: []const u8,
-    given: []const u8,
-    first: []const u8,
-    middle: []const u8,
-    last: []const u8,
-    email: []const u8,
-    comment: []const u8,
-    orcid: []const u8,
+pub fn init(alloc: Allocator) Authors {
+    return .{
+        .alloc = alloc,
+        .db = try AuthorsDB.init(alloc),
+    };
+}
 
-    pub fn fromFunctionCall(fc: FunctionCall) Person {}
+pub fn deinit(self: *Authors) void {
+    self.db.deinit();
+    self.* = undefined;
+}
+
+const AuthorsDB = struct {
+    alloc: Allocator,
+    person_ids: Storage(PersonId, u8),
+    person_strings: PersonAttributes([]const u8),
+    person_roles: PersonAttributes(Role),
+    attribute_names: Storage([]const u8, AttributeId),
+    package_names: Storage([]const u8, PackageId),
+
+    /// Prefer to use ArenaAllocator as the parser is leaky.
+    pub fn init(alloc: Allocator) !AuthorsDB {
+        return .{
+            .alloc = alloc,
+            .person_ids = Storage(PersonId, u8).init(alloc),
+            .person_strings = try PersonAttributes([]const u8).init(alloc),
+            .person_roles = try PersonAttributes(Role).init(alloc),
+            .attribute_names = Storage([]const u8, AttributeId).init(alloc),
+            .package_names = Storage([]const u8, PackageId).init(alloc),
+        };
+    }
+    pub fn deinit(self: *AuthorsDB) void {
+        self.person_ids.deinit();
+        self.person_strings.deinit();
+        self.person_roles.deinit();
+        self.attribute_names.deinit();
+        self.package_names.deinit();
+        self.* = undefined;
+    }
+    pub fn debugPrint(self: AuthorsDB) void {
+        std.debug.print("\nAttributes:\n", .{});
+        var id: usize = 0;
+        for (self.attribute_names.data.items) |x| {
+            std.debug.print("  {}: {s}\n", .{ id, x });
+            id += 1;
+        }
+
+        std.debug.print("\nPackages:\n", .{});
+        id = 0;
+        for (self.package_names.data.items) |x| {
+            std.debug.print("  {}: {s}\n", .{ id, x });
+            id += 1;
+        }
+
+        std.debug.print("\nPersons:\n", .{});
+        std.debug.print("  Count: {}\n", .{self.person_ids._next});
+
+        std.debug.print("\nPerson strings:\n", .{});
+        id = 0;
+        for (self.person_strings.data.data.items) |x| {
+            std.debug.print(
+                "  {}: (package_id {}) (person_id {}) (attr_id {}) (value {s})\n",
+                .{
+                    id,
+                    x.package_id,
+                    x.person_id,
+                    x.attribute_id,
+                    x.value,
+                },
+            );
+            id += 1;
+        }
+    }
+
+    pub fn nextPersonId(self: *AuthorsDB) PersonId {
+        return self.person_ids.nextId();
+    }
+
+    /// Leaky, prefer to use an ArenaAllocator.
+    pub fn addFromFunctionCall(self: *AuthorsDB, fc: FunctionCall, package_name: []const u8) !void {
+        assert(std.mem.eql(u8, "person", fc.name));
+
+        const package_id = self.package_names.lookupString(package_name) orelse b: {
+            const id = self.package_names.nextId();
+            try self.package_names.put(id, package_name);
+            break :b id;
+        };
+
+        // person (given = NULL, family = NULL, middle = NULL, email = NULL,
+        //     role = NULL, comment = NULL, first = NULL, last = NULL)
+
+        // each person function allocates a new person id. we don't
+        // deduplicate because anyway how?
+        const person_id = self.nextPersonId();
+        const strings = &self.person_strings;
+
+        var pos: usize = 1;
+        for (fc.positional) |fa| {
+            var attr_id: AttributeId = undefined;
+            var string_value: ?[]const u8 = null;
+            // var roleValue: ?Role = null;
+
+            switch (pos) {
+                1 => {
+                    attr_id = try self.attributeId("given");
+                    string_value = switch (fa) {
+                        .string => |s| s,
+                        else => null,
+                    };
+                },
+                2 => {
+                    attr_id = try self.attributeId("family");
+                    string_value = switch (fa) {
+                        .string => |s| s,
+                        else => null,
+                    };
+                },
+                3 => {
+                    attr_id = try self.attributeId("middle");
+                    string_value = switch (fa) {
+                        .string => |s| s,
+                        else => null,
+                    };
+                },
+                4 => {
+                    attr_id = try self.attributeId("email");
+                    string_value = switch (fa) {
+                        .string => |s| s,
+                        else => null,
+                    };
+                },
+                5 => {
+                    attr_id = try self.attributeId("role");
+                    string_value = switch (fa) {
+                        .string => |s| s,
+                        else => null,
+                    };
+                },
+                6 => {
+                    attr_id = try self.attributeId("comment");
+                    string_value = switch (fa) {
+                        .string => |s| s,
+                        else => null,
+                    };
+                },
+                7 => {
+                    attr_id = try self.attributeId("first");
+                    string_value = switch (fa) {
+                        .string => |s| s,
+                        else => null,
+                    };
+                },
+                8 => {
+                    attr_id = try self.attributeId("last");
+                    string_value = switch (fa) {
+                        .string => |s| s,
+                        else => null,
+                    };
+                },
+                else => unreachable,
+            }
+
+            if (string_value) |s| {
+                try strings.put(strings.data.nextId(), .{
+                    .package_id = package_id,
+                    .person_id = person_id,
+                    .attribute_id = attr_id,
+                    .value = s,
+                });
+            }
+
+            // if (roleValue) |r| {}
+
+            pos += 1;
+        } // positional arguments
+
+        for (fc.named) |na| {
+            var attr_id: AttributeId = undefined;
+            var string_value: ?[]const u8 = null;
+            // var roleValue: ?Role = null;
+
+            if (std.ascii.eqlIgnoreCase("comment", na.name)) {
+                attr_id = try self.attributeId("comment");
+                string_value = switch (na.value) {
+                    .string => |s| s,
+                    else => null,
+                };
+            }
+        } // named arguments
+    }
+
+    fn attributeId(self: *AuthorsDB, name: []const u8) !AttributeId {
+        return self.attribute_names.lookup(name) orelse b: {
+            const id = self.attribute_names.nextId();
+            try self.attribute_names.put(id, name);
+            break :b id;
+        };
+    }
 };
+
+fn PersonAttribute(comptime T: type) type {
+    return struct {
+        package_id: PackageId,
+        person_id: PersonId,
+        attribute_id: AttributeId,
+        value: T,
+    };
+}
+
+/// Storage for PersonAttributes
+fn PersonAttributes(comptime T: type) type {
+    return struct {
+        /// field may be accessed directly for read-only operations, but
+        /// use methods for destructive ops.
+        data: Storage(ValueType, IdType),
+
+        const ValueType = PersonAttribute(T);
+        const IdType = PersonAttributeId;
+
+        pub fn init(alloc: Allocator) !@This() {
+            return .{
+                .data = Storage(ValueType, IdType).init(alloc),
+            };
+        }
+        pub fn deinit(self: *@This()) void {
+            self.data.deinit();
+            self.* = undefined;
+        }
+        pub fn put(self: *@This(), id: IdType, value: ValueType) !void {
+            try self.data.put(id, value);
+        }
+
+        /// Return next record matching person_id, starting at id
+        /// from_id. From_id will be updated to point to record after
+        /// the one returned.
+        pub fn next_attribute(self: @This(), person_id: PersonId, from_id: *IdType) ?PersonAttribute {
+            var index = from_id.*;
+            const items = self.data.data.items;
+            while (index < items.len) : (index += 1) {
+                if (items[index].person_id == person_id) {
+                    from_id.* = index + 1;
+                    return items[index];
+                }
+            }
+            return null;
+        }
+    };
+}
+
+fn Storage(comptime T: type, comptime IdType: type) type {
+    return struct {
+        data: std.ArrayList(T),
+        _next: IdType = 0,
+
+        pub fn init(alloc: Allocator) @This() {
+            return .{
+                .data = std.ArrayList(T).init(alloc),
+            };
+        }
+        pub fn deinit(self: *@This()) void {
+            self.data.deinit();
+            self.* = undefined;
+        }
+        pub fn nextId(self: *@This()) IdType {
+            assert(self._next != std.math.maxInt(IdType));
+            const out = self._next;
+            self._next += 1;
+            return out;
+        }
+        pub fn put(self: *@This(), id: IdType, value: T) !void {
+            assert(id != std.math.maxInt(IdType));
+            const new_len = id + 1;
+            if (self.data.items.len < new_len)
+                try self.data.resize(new_len);
+
+            self.data.items[id] = value;
+        }
+        pub fn get(self: @This(), id: IdType) !T {
+            if (id < self.data.items.len) return self.data.items[id];
+            return error.OutOfRange;
+        }
+        pub fn lookup(self: @This(), value: T) ?IdType {
+            var index: IdType = 0;
+            for (self.data.items) |x| {
+                if (std.meta.eql(x, value)) return index;
+                index += 1;
+            }
+            return null;
+        }
+        pub fn lookupString(self: @This(), value: T) ?IdType {
+            var index: IdType = 0;
+            for (self.data.items) |x| {
+                if (std.mem.eql(u8, x, value)) return index;
+                index += 1;
+            }
+            return null;
+        }
+    };
+}
+
+const AttributeId = u16;
+const PersonAttributeId = u32;
+const PersonId = u32;
+const PackageId = u32;
 
 const Role = enum {
     author,
@@ -60,15 +352,10 @@ const Role = enum {
     }
 };
 
-pub fn init(alloc: Allocator) Authors {
-    return .{
-        .alloc = alloc,
-    };
-}
-
-pub fn deinit(self: *Authors) void {
-    self.* = undefined;
-}
+const Comment = union(enum) {
+    string: []const u8,
+    map: std.StringArrayHashMap([]const u8),
+};
 
 pub fn read(self: *Authors, source: []const u8, strings: *StringStorage) !void {
 
@@ -119,9 +406,10 @@ pub fn read(self: *Authors, source: []const u8, strings: *StringStorage) !void {
 
                                     // outer function can be c() or person()
                                     if (std.mem.eql(u8, "c", fc.name)) {
-                                        0;
+                                        // FIXME not implemented
+                                        unreachable;
                                     } else if (std.mem.eql(u8, "person", fc.name)) {
-                                        0;
+                                        try self.db.addFromFunctionCall(fc, package_name.?);
                                     } else unreachable;
                                 },
                                 .function_arg => return error.RParseExpectedFunctionCall,
@@ -154,13 +442,16 @@ test "Authors" {
         \\Type: Package
         \\Title: Project Environments
         \\Version: 1.0.7.9000
-        \\Authors@R: c(
+        // \\Authors@R: c(
+        // \\    person("Kevin", "Ushey", role = c("aut", "cre"), email = "kevin@rstudio.com",
+        // \\           comment = c(ORCID = "0000-0003-2880-7407")),
+        // \\    person("Hadley", "Wickham", role = c("aut"), email = "hadley@rstudio.com",
+        // \\           comment = c(ORCID = "0000-0003-4757-117X")),
+        // \\    person("Posit Software, PBC", role = c("cph", "fnd"))
+        // \\    )
+        \\Authors@R:
         \\    person("Kevin", "Ushey", role = c("aut", "cre"), email = "kevin@rstudio.com",
         \\           comment = c(ORCID = "0000-0003-2880-7407")),
-        \\    person("Hadley", "Wickham", role = c("aut"), email = "hadley@rstudio.com",
-        \\           comment = c(ORCID = "0000-0003-4757-117X")),
-        \\    person("Posit Software, PBC", role = c("cph", "fnd"))
-        \\    )
         \\Description: A dependency management toolkit for R. Using 'renv', you can create
         \\    and manage project-local R libraries, save the state of these libraries to
         \\    a 'lockfile', and later restore your library as required. Together, these
@@ -190,6 +481,8 @@ test "Authors" {
     defer authors.deinit();
 
     try authors.read(source, &strings);
+
+    authors.db.debugPrint();
 }
 
 const std = @import("std");
