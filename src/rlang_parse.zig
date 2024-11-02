@@ -90,8 +90,6 @@ pub const Tokenizer = struct {
             identifier,
             string,
             string_single,
-            open_round_expect_string,
-            open_round_string,
         };
         const Loc = struct {
             start: usize,
@@ -350,8 +348,6 @@ pub const Parser = struct {
         };
         const State = union(enum) {
             start,
-            open_round_expect_string,
-            open_round_string: struct { string: []const u8, loc: usize },
             identifier: struct { name: []const u8, loc: usize },
             funcall_start: FuncallState,
             funcall_comma: FuncallState,
@@ -363,6 +359,8 @@ pub const Parser = struct {
                 state: FuncallState,
                 identifier: struct { name: []const u8, loc: usize },
             },
+            funcall_open_round_expect_string: FuncallState,
+            funcall_open_round_string: struct { state: FuncallState, string: []const u8, loc: usize },
         };
         var state: State = .start;
 
@@ -380,16 +378,16 @@ pub const Parser = struct {
                         .comma => return err(.comma, res.ok.loc),
                         .close_round => return err(.close_round, res.ok.loc),
                         .eof => return err(.eof, res.ok.loc),
-                        .open_round => state = .open_round_expect_string,
-                        .equal => return err(.expected_identifier, res.ok.loc),
+                        .open_round, .equal => return err(.expected_identifier, res.ok.loc),
                     }
                 },
-                .open_round_expect_string => {
+                .funcall_open_round_expect_string => |st| {
                     const res = try self.tokenizer.next();
                     if (res == .err) return tokenizer_err(res.err);
                     switch (res.ok.token) {
                         .string => |s| {
-                            state = .{ .open_round_string = .{
+                            state = .{ .funcall_open_round_string = .{
+                                .state = st,
                                 .string = s,
                                 .loc = res.ok.loc,
                             } };
@@ -397,11 +395,14 @@ pub const Parser = struct {
                         else => return err(.expected_string, res.ok.loc),
                     }
                 },
-                .open_round_string => |ors| {
+                .funcall_open_round_string => |*ors| {
                     const res = try self.tokenizer.next();
                     if (res == .err) return tokenizer_err(res.err);
                     switch (res.ok.token) {
-                        .close_round => return ok(.{ .string = ors.string }, ors.loc),
+                        .close_round => {
+                            try ors.state.positional.append(.{ .string = ors.string });
+                            state = .{ .funcall_start = ors.state };
+                        },
                         else => return err(.expected_close_round, res.ok.loc),
                     }
                 },
@@ -432,6 +433,7 @@ pub const Parser = struct {
                         },
                         .string => |s| try st.positional.append(.{ .string = s }),
                         .comma => state = .{ .funcall_comma = st.* },
+                        .open_round => state = .{ .funcall_open_round_expect_string = st.* },
                         .close_round => {
                             // end of funcall
                             return ok_function_call(.{
@@ -606,7 +608,7 @@ test "tokenize 2" {
 test "tokenize parenthesized string" {
     const alloc = std.testing.allocator;
     const source =
-        \\ ("parenthesized string")
+        \\ person(("parenthesized string"))
         \\
     ;
 
@@ -617,8 +619,11 @@ test "tokenize parenthesized string" {
     defer tokenizer.deinit();
 
     try tokenizeExpect(alloc, &tokenizer, &.{
+        .{ .identifier = "person" },
+        .open_round,
         .open_round,
         .{ .string = "parenthesized string" },
+        .close_round,
         .close_round,
     });
 }
@@ -628,7 +633,7 @@ test "parse parenthesized string" {
     var arena = std.heap.ArenaAllocator.init(alloc);
     defer arena.deinit();
     const source =
-        \\ ("parenthesized string")
+        \\ person(("parenthesized string"))
         \\
     ;
     var strings = try StringStorage.init(alloc, std.heap.page_allocator);
@@ -642,8 +647,8 @@ test "parse parenthesized string" {
 
     try doParseDebug(&parser);
     // Outputs:
-    // RESULT: 2: (string "parenthesized string")
-    // EOF: 26
+    // RESULT: 1: (funcall person (string "parenthesized string"))
+    // EOF: 34
 }
 
 test "parse" {
