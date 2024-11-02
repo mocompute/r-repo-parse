@@ -59,25 +59,20 @@ const AuthorsDB = struct {
     }
     pub fn debugPrint(self: AuthorsDB) void {
         std.debug.print("\nAttributes:\n", .{});
-        var id: usize = 0;
-        for (self.attribute_names.data.items) |x| {
+        for (self.attribute_names.data.items, 0..) |x, id| {
             std.debug.print("  {}: {s}\n", .{ id, x });
-            id += 1;
         }
 
         std.debug.print("\nPackages:\n", .{});
-        id = 0;
-        for (self.package_names.data.items) |x| {
+        for (self.package_names.data.items, 0..) |x, id| {
             std.debug.print("  {}: {s}\n", .{ id, x });
-            id += 1;
         }
 
         std.debug.print("\nPersons:\n", .{});
         std.debug.print("  Count: {}\n", .{self.person_ids._next});
 
         std.debug.print("\nPerson strings:\n", .{});
-        id = 0;
-        for (self.person_strings.data.data.items) |x| {
+        for (self.person_strings.data.data.items, 0..) |x, id| {
             std.debug.print(
                 "  {}: (package_id {}) (person_id {}) (attr_id {}) (value {s})\n",
                 .{
@@ -88,12 +83,10 @@ const AuthorsDB = struct {
                     x.value,
                 },
             );
-            id += 1;
         }
 
         std.debug.print("\nPerson roles:\n", .{});
-        id = 0;
-        for (self.person_roles.data.data.items) |x| {
+        for (self.person_roles.data.data.items, 0..) |x, id| {
             std.debug.print(
                 "  {}: (package_id {}) (person_id {}) (attr_id {}) (value {})\n",
                 .{
@@ -104,7 +97,6 @@ const AuthorsDB = struct {
                     x.value,
                 },
             );
-            id += 1;
         }
     }
 
@@ -130,8 +122,7 @@ const AuthorsDB = struct {
         // deduplicate because anyway how?
         const person_id = self.nextPersonId();
 
-        var pos: usize = 1;
-        for (fc.positional) |fa| {
+        for (fc.positional, 1..) |fa, pos| {
             var attr_id: AttributeId = undefined;
             var string_value: ?[]const u8 = null;
 
@@ -198,8 +189,6 @@ const AuthorsDB = struct {
             if (string_value) |s| {
                 try self.putNewString(package_id, person_id, attr_id, s);
             }
-
-            pos += 1;
         } // positional arguments
 
         for (fc.named) |na| {
