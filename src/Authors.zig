@@ -32,7 +32,7 @@ pub fn deinit(self: *Authors) void {
 
 const AuthorsDB = struct {
     alloc: Allocator,
-    person_ids: Storage(PersonId, u8),
+    person_ids: Storage(PersonId, PersonId),
     person_strings: PersonAttributes([]const u8),
     person_roles: PersonAttributes(Role),
     attribute_names: Storage([]const u8, AttributeId),
@@ -42,7 +42,7 @@ const AuthorsDB = struct {
     pub fn init(alloc: Allocator) !AuthorsDB {
         return .{
             .alloc = alloc,
-            .person_ids = Storage(PersonId, u8).init(alloc),
+            .person_ids = Storage(PersonId, PersonId).init(alloc),
             .person_strings = try PersonAttributes([]const u8).init(alloc),
             .person_roles = try PersonAttributes(Role).init(alloc),
             .attribute_names = Storage([]const u8, AttributeId).init(alloc),
@@ -90,6 +90,22 @@ const AuthorsDB = struct {
             );
             id += 1;
         }
+
+        std.debug.print("\nPerson roles:\n", .{});
+        id = 0;
+        for (self.person_roles.data.data.items) |x| {
+            std.debug.print(
+                "  {}: (package_id {}) (person_id {}) (attr_id {}) (value {})\n",
+                .{
+                    id,
+                    x.package_id,
+                    x.person_id,
+                    x.attribute_id,
+                    x.value,
+                },
+            );
+            id += 1;
+        }
     }
 
     pub fn nextPersonId(self: *AuthorsDB) PersonId {
@@ -99,6 +115,7 @@ const AuthorsDB = struct {
     /// Leaky, prefer to use an ArenaAllocator.
     pub fn addFromFunctionCall(self: *AuthorsDB, fc: FunctionCall, package_name: []const u8) !void {
         assert(std.mem.eql(u8, "person", fc.name));
+        const eql = std.ascii.eqlIgnoreCase;
 
         const package_id = self.package_names.lookupString(package_name) orelse b: {
             const id = self.package_names.nextId();
@@ -117,7 +134,6 @@ const AuthorsDB = struct {
         for (fc.positional) |fa| {
             var attr_id: AttributeId = undefined;
             var string_value: ?[]const u8 = null;
-            // var roleValue: ?Role = null;
 
             switch (pos) {
                 1 => {
@@ -183,23 +199,22 @@ const AuthorsDB = struct {
                 try self.putNewString(package_id, person_id, attr_id, s);
             }
 
-            // if (roleValue) |r| {}
-
             pos += 1;
         } // positional arguments
 
         for (fc.named) |na| {
             var attr_id: AttributeId = undefined;
-            // var roleValue: ?Role = null;
 
-            if (std.ascii.eqlIgnoreCase("comment", na.name)) {
+            // person (given = NULL, family = NULL, middle = NULL, email = NULL,
+            //     role = NULL, comment = NULL, first = NULL, last = NULL)
+            if (eql("comment", na.name)) {
                 attr_id = try self.attributeId("comment");
                 switch (na.value) {
                     .string => |s| {
                         try self.putNewString(package_id, person_id, attr_id, s);
                     },
                     .function_call => |comment_fc| {
-                        if (std.ascii.eqlIgnoreCase("c", comment_fc.name)) {
+                        if (eql("c", comment_fc.name)) {
                             for (comment_fc.named) |comment_na| {
                                 attr_id = try self.attributeId(comment_na.name);
                                 switch (comment_na.value) {
@@ -213,12 +228,39 @@ const AuthorsDB = struct {
                     },
                     else => unreachable,
                 }
+            } else if (eql("role", na.name)) {
+                attr_id = try self.attributeId("role");
+                switch (na.value) {
+                    .string => |s| try self.putNewRole(package_id, person_id, attr_id, Role.fromString(s)),
+                    .function_call => |role_fc| {
+                        if (eql("c", role_fc.name)) {
+                            for (role_fc.positional) |fa| {
+                                switch (fa) {
+                                    .string => |s| try self.putNewRole(package_id, person_id, attr_id, Role.fromString(s)),
+                                    else => unreachable,
+                                }
+                            }
+                            for (role_fc.named) |_| {
+                                unreachable;
+                            }
+                        }
+                    },
+                    else => unreachable,
+                }
+            } else {
+                attr_id = try self.attributeId(na.name);
+                switch (na.value) {
+                    .string => |s| try self.putNewString(package_id, person_id, attr_id, s),
+                    else => {
+                        std.debug.print("ERROR: unexpected function call in named argument: {s}\n", .{package_name});
+                    },
+                }
             }
         } // named arguments
     }
 
     fn attributeId(self: *AuthorsDB, name: []const u8) !AttributeId {
-        return self.attribute_names.lookup(name) orelse b: {
+        return self.attribute_names.lookupString(name) orelse b: {
             const id = self.attribute_names.nextId();
             try self.attribute_names.put(id, name);
             break :b id;
@@ -369,6 +411,10 @@ const Role = enum {
     creator,
     thesis_advisor,
     translator,
+    contractor,
+    data_contributor,
+    funder,
+    reviewer,
 
     pub fn fromString(s: []const u8) Role {
         const eql = std.ascii.eqlIgnoreCase;
@@ -386,7 +432,18 @@ const Role = enum {
             return .thesis_advisor;
         } else if (eql(s, "trl")) {
             return .translator;
-        } else unreachable;
+        } else if (eql(s, "ctr")) {
+            return .contractor;
+        } else if (eql(s, "dtc")) {
+            return .translator;
+        } else if (eql(s, "fnd")) {
+            return .translator;
+        } else if (eql(s, "rev")) {
+            return .reviewer;
+        } else {
+            std.debug.print("error: got unknown role: {s}\n", .{s});
+            unreachable;
+        }
     }
 };
 
@@ -396,6 +453,7 @@ const Comment = union(enum) {
 };
 
 pub fn read(self: *Authors, source: []const u8, strings: *StringStorage) !void {
+    const eql = std.ascii.eqlIgnoreCase;
 
     // arena for the RParser
     var arena = std.heap.ArenaAllocator.init(self.alloc);
@@ -444,9 +502,17 @@ pub fn read(self: *Authors, source: []const u8, strings: *StringStorage) !void {
 
                                     // outer function can be c() or person()
                                     if (std.mem.eql(u8, "c", fc.name)) {
-                                        // FIXME not implemented
-                                        unreachable;
-                                    } else if (std.mem.eql(u8, "person", fc.name)) {
+                                        for (fc.positional) |fa| {
+                                            switch (fa) {
+                                                .function_call => |c_fc| {
+                                                    if (eql("person", c_fc.name)) {
+                                                        try self.db.addFromFunctionCall(c_fc, package_name.?);
+                                                    } else unreachable;
+                                                },
+                                                else => unreachable,
+                                            }
+                                        }
+                                    } else if (eql("person", fc.name)) {
                                         try self.db.addFromFunctionCall(fc, package_name.?);
                                     } else unreachable;
                                 },
@@ -480,16 +546,22 @@ test "Authors" {
         \\Type: Package
         \\Title: Project Environments
         \\Version: 1.0.7.9000
-        // \\Authors@R: c(
-        // \\    person("Kevin", "Ushey", role = c("aut", "cre"), email = "kevin@rstudio.com",
-        // \\           comment = c(ORCID = "0000-0003-2880-7407")),
-        // \\    person("Hadley", "Wickham", role = c("aut"), email = "hadley@rstudio.com",
-        // \\           comment = c(ORCID = "0000-0003-4757-117X")),
-        // \\    person("Posit Software, PBC", role = c("cph", "fnd"))
-        // \\    )
-        \\Authors@R:
+        \\Authors@R: c(
         \\    person("Kevin", "Ushey", role = c("aut", "cre"), email = "kevin@rstudio.com",
         \\           comment = c(ORCID = "0000-0003-2880-7407")),
+        \\    person("Hadley", "Wickham", role = c("aut"), email = "hadley@rstudio.com",
+        \\           comment = c(ORCID = "0000-0003-4757-117X")),
+        \\    person("Posit Software, PBC", role = c("cph", "fnd"))
+        \\    )
+        \\Authors@R: person('Pierre-Yves', 'de Müllenheim', email = 'pydemull@uco.fr', role = c('cre', 'aut'), comment = c(ORCID = "0000-0001-9157-7371"))
+        \\Authors@R: c(person(given = "Sy Han", family = "Chiou", email = "schiou@smu.edu", role = c("aut", "cre")),
+        \\           person(given = "Sangwook", family = "Kang", role = "aut"),
+        \\           person(given = "Jun", family = "Yan", role = "aut"))
+        \\Authors@R: c(person(("Atanu"), "Bhattacharjee",
+        \\                    email="atanustat@gmail.com",
+        \\                    role=c("aut", "cre","ctb")),
+        \\               person(("Gajendra Kumar"), "Vishwakarma", role=c("aut","ctb")),
+        \\               person(("Pragya"), "Kumari", role=c("aut","ctb")))
         \\Description: A dependency management toolkit for R. Using 'renv', you can create
         \\    and manage project-local R libraries, save the state of these libraries to
         \\    a 'lockfile', and later restore your library as required. Together, these
@@ -523,8 +595,34 @@ test "Authors" {
     authors.db.debugPrint();
 }
 
+// test "read authors from PACKAGES.gz" {
+//     const mos = @import("mos");
+//     const alloc = std.testing.allocator;
+//     const path = "PACKAGES-full.gz";
+//     std.fs.cwd().access(path, .{}) catch return;
+
+//     const source: ?[]const u8 = try mos.file.readFileMaybeGzip(alloc, path);
+//     try std.testing.expect(source != null);
+//     defer if (source) |s| alloc.free(s);
+
+//     if (source) |source_| {
+//         var strings = try StringStorage.init(alloc, std.heap.page_allocator);
+//         defer strings.deinit();
+
+//         var authors = Authors.init(alloc);
+//         defer authors.deinit();
+
+//         var timer = try std.time.Timer.start();
+//         try authors.read(source_, &strings);
+//         std.debug.print("Parse authors = {}ms\n", .{@divFloor(timer.lap(), 1_000_000)});
+
+//         authors.db.debugPrint();
+//     }
+// }
+
 const std = @import("std");
 const Allocator = std.mem.Allocator;
+
 const StringStorage = @import("string_storage.zig").StringStorage;
 
 const parse = @import("parse.zig");

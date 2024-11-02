@@ -261,7 +261,7 @@ fn testTokenize(source: []const u8, expected_token_tags: []const parse.Token.Tag
             defer tok.deinit();
             var t = tok.next();
             while (t.tag != .eof) : (t = tok.next()) {
-                std.debug.print("{}\n", .{t});
+                // std.debug.print("{}\n", .{t});
             }
             return err;
         };

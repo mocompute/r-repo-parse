@@ -295,7 +295,7 @@ test "versions with minus" {
         while (true) {
             const tok = tokenizer.next();
             if (tok.tag == .eof) break;
-            tok.debugPrint(data);
+            // tok.debugPrint(data);
         }
     }
     {

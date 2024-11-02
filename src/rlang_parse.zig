@@ -89,6 +89,7 @@ pub const Tokenizer = struct {
             start,
             identifier,
             string,
+            string_single,
         };
         const Loc = struct {
             start: usize,
@@ -110,6 +111,10 @@ pub const Tokenizer = struct {
                         string.start = cpos;
                         state = .string;
                     },
+                    '\'' => {
+                        string.start = cpos;
+                        state = .string_single;
+                    },
                     '(' => return ok(.open_round, cpos),
                     ')' => return ok(.close_round, cpos),
                     '=' => return ok(.equal, cpos),
@@ -119,6 +124,15 @@ pub const Tokenizer = struct {
                 },
                 .string => switch (c) {
                     '"' => {
+                        // string.start points to open quote
+                        string.end = cpos;
+                        const s = try self.strings.append(self.buffer[string.start + 1 .. string.end]);
+                        return ok(.{ .string = s }, string.start);
+                    },
+                    else => continue,
+                },
+                .string_single => switch (c) {
+                    '\'' => {
                         // string.start points to open quote
                         string.end = cpos;
                         const s = try self.strings.append(self.buffer[string.start + 1 .. string.end]);
@@ -147,6 +161,9 @@ pub const Tokenizer = struct {
                 return ok(.{ .identifier = s }, string.start);
             },
             .string => {
+                return err(.unterminated_string, string.start);
+            },
+            .string_single => {
                 return err(.unterminated_string, string.start);
             },
         }
