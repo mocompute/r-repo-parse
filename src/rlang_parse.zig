@@ -90,6 +90,8 @@ pub const Tokenizer = struct {
             identifier,
             string,
             string_single,
+            open_round_expect_string,
+            open_round_string,
         };
         const Loc = struct {
             start: usize,
@@ -334,6 +336,8 @@ pub const Parser = struct {
         expected_identifier,
         expected_argument,
         expected_funcall,
+        expected_string,
+        expected_close_round,
         unexpected_token,
         tokenizer_error: Tokenizer.Err,
     };
@@ -346,6 +350,8 @@ pub const Parser = struct {
         };
         const State = union(enum) {
             start,
+            open_round_expect_string,
+            open_round_string: struct { string: []const u8, loc: usize },
             identifier: struct { name: []const u8, loc: usize },
             funcall_start: FuncallState,
             funcall_comma: FuncallState,
@@ -366,19 +372,37 @@ pub const Parser = struct {
                     const res = try self.tokenizer.next();
                     if (res == .err) return tokenizer_err(res.err);
                     switch (res.ok.token) {
-                        .identifier => |s| state = .{
-                            .identifier = .{
-                                .name = s,
-                                .loc = res.ok.loc,
-                            },
-                        },
+                        .identifier => |s| state = .{ .identifier = .{
+                            .name = s,
+                            .loc = res.ok.loc,
+                        } },
                         .string => |s| return ok(.{ .string = s }, res.ok.loc),
                         .comma => return err(.comma, res.ok.loc),
                         .close_round => return err(.close_round, res.ok.loc),
                         .eof => return err(.eof, res.ok.loc),
-                        .open_round,
-                        .equal,
-                        => return err(.expected_identifier, res.ok.loc),
+                        .open_round => state = .open_round_expect_string,
+                        .equal => return err(.expected_identifier, res.ok.loc),
+                    }
+                },
+                .open_round_expect_string => {
+                    const res = try self.tokenizer.next();
+                    if (res == .err) return tokenizer_err(res.err);
+                    switch (res.ok.token) {
+                        .string => |s| {
+                            state = .{ .open_round_string = .{
+                                .string = s,
+                                .loc = res.ok.loc,
+                            } };
+                        },
+                        else => return err(.expected_string, res.ok.loc),
+                    }
+                },
+                .open_round_string => |ors| {
+                    const res = try self.tokenizer.next();
+                    if (res == .err) return tokenizer_err(res.err);
+                    switch (res.ok.token) {
+                        .close_round => return ok(.{ .string = ors.string }, ors.loc),
+                        else => return err(.expected_close_round, res.ok.loc),
                     }
                 },
                 .identifier => |s| {
@@ -577,6 +601,49 @@ test "tokenize 2" {
         .comma,
         .close_round,
     });
+}
+
+test "tokenize parenthesized string" {
+    const alloc = std.testing.allocator;
+    const source =
+        \\ ("parenthesized string")
+        \\
+    ;
+
+    var strings = try StringStorage.init(alloc, std.heap.page_allocator);
+    defer strings.deinit();
+
+    var tokenizer = Tokenizer.init(source, &strings);
+    defer tokenizer.deinit();
+
+    try tokenizeExpect(alloc, &tokenizer, &.{
+        .open_round,
+        .{ .string = "parenthesized string" },
+        .close_round,
+    });
+}
+
+test "parse parenthesized string" {
+    const alloc = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(alloc);
+    defer arena.deinit();
+    const source =
+        \\ ("parenthesized string")
+        \\
+    ;
+    var strings = try StringStorage.init(alloc, std.heap.page_allocator);
+    defer strings.deinit();
+
+    var tokenizer = Tokenizer.init(source, &strings);
+    defer tokenizer.deinit();
+
+    var parser = Parser.init(arena.allocator(), &tokenizer, &strings);
+    defer parser.deinit();
+
+    try doParseDebug(&parser);
+    // Outputs:
+    // RESULT: 2: (string "parenthesized string")
+    // EOF: 26
 }
 
 test "parse" {

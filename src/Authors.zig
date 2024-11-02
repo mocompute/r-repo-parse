@@ -508,7 +508,10 @@ pub fn read(self: *Authors, source: []const u8, strings: *StringStorage) !void {
                                 .function_arg => return error.RParseExpectedFunctionCall,
                             }
                         },
-                        .err => return error.RParseError,
+                        .err => |e| {
+                            std.debug.print("ERROR: {}\n", .{e});
+                            return error.RParseError;
+                        },
                     }
                 }
             },
