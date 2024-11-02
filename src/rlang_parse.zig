@@ -628,12 +628,58 @@ test "tokenize parenthesized string" {
     });
 }
 
+test "tokenize quoted named argument" {
+    const alloc = std.testing.allocator;
+    const source =
+        \\ person("argument" = "value")
+        \\
+    ;
+
+    var strings = try StringStorage.init(alloc, std.heap.page_allocator);
+    defer strings.deinit();
+
+    var tokenizer = Tokenizer.init(source, &strings);
+    defer tokenizer.deinit();
+
+    try tokenizeExpect(alloc, &tokenizer, &.{
+        .{ .identifier = "person" },
+        .open_round,
+        .{ .string = "argument" },
+        .equal,
+        .{ .string = "value" },
+        .close_round,
+    });
+}
+
 test "parse parenthesized string" {
     const alloc = std.testing.allocator;
     var arena = std.heap.ArenaAllocator.init(alloc);
     defer arena.deinit();
     const source =
         \\ person(("parenthesized string"))
+        \\
+    ;
+    var strings = try StringStorage.init(alloc, std.heap.page_allocator);
+    defer strings.deinit();
+
+    var tokenizer = Tokenizer.init(source, &strings);
+    defer tokenizer.deinit();
+
+    var parser = Parser.init(arena.allocator(), &tokenizer, &strings);
+    defer parser.deinit();
+
+    try doParseDebug(&parser);
+    // Outputs:
+    // RESULT: 1: (funcall person (string "parenthesized string"))
+    // EOF: 34
+}
+
+test "parse quoted named argument" {
+    const alloc = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(alloc);
+    defer arena.deinit();
+    const source =
+        \\ person("argument" = "value")
         \\
     ;
     var strings = try StringStorage.init(alloc, std.heap.page_allocator);
@@ -712,7 +758,7 @@ fn doParseDebug(parser: *Parser) !void {
                     return;
                 }
                 std.debug.print("ERROR: {}: {}\n", .{ e.loc, e.err });
-                return;
+                return error.ParseError;
             },
             .ok => |ok| {
                 std.debug.print("RESULT: {}: {}\n", .{ ok.loc, ok.node });
