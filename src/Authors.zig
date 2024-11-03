@@ -240,6 +240,31 @@ const AuthorsDB = struct {
                 attr_id = try self.attributeId(na.name);
                 switch (na.value) {
                     .string => |s| try self.putNewString(package_id, person_id, attr_id, s),
+                    .function_call => |other_fc| {
+                        // support vector of attribute values by appending index to attribute name
+                        if (eql("c", other_fc.name)) {
+                            for (other_fc.positional, 1..) |fa, pos| {
+                                switch (fa) {
+                                    .string => |s| {
+                                        if (pos == 1) {
+                                            // use unindexed name for first element
+                                            try self.putNewString(package_id, person_id, attr_id, s);
+                                        } else {
+                                            // make an indexed name and use it
+                                            var buf: [512]u8 = undefined;
+                                            const indexed_name = try std.fmt.bufPrint(&buf, "{s}{}", .{ na.name, pos });
+                                            const indexed_attr = try self.attributeId(try self.alloc.dupe(u8, indexed_name));
+                                            try self.putNewString(package_id, person_id, indexed_attr, s);
+                                        }
+                                    },
+                                    else => {
+                                        std.debug.print("ERROR: non-string positional argument: {s}\n", .{package_name});
+                                        return error.ParseError;
+                                    },
+                                }
+                            }
+                        }
+                    },
                     else => {
                         std.debug.print("ERROR: unexpected function call in named argument: {s}\n", .{package_name});
                         return error.ParseError;
@@ -450,7 +475,7 @@ pub fn read(self: *Authors, source: []const u8, strings: *StringStorage) !void {
     defer arena.deinit();
 
     // parse DCF
-    var parser = Parser.init(self.alloc, strings);
+    var parser = Parser.init(arena.allocator(), strings);
     defer parser.deinit();
     try parser.parse(source);
 
@@ -533,7 +558,10 @@ fn parsePackageName(nodes: []Parser.Node, idx: *usize, strings: *StringStorage) 
 }
 
 test "Authors" {
-    const alloc = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
     const source =
         \\Package: renv
         \\Type: Package
@@ -610,30 +638,34 @@ test "Authors" {
     authors.db.debugPrint();
 }
 
-// test "read authors from PACKAGES.gz" {
-//     const mos = @import("mos");
-//     const alloc = std.testing.allocator;
-//     const path = "PACKAGES-full.gz";
-//     std.fs.cwd().access(path, .{}) catch return;
+test "read authors from PACKAGES.gz" {
+    const mos = @import("mos");
 
-//     const source: ?[]const u8 = try mos.file.readFileMaybeGzip(alloc, path);
-//     try std.testing.expect(source != null);
-//     defer if (source) |s| alloc.free(s);
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
 
-//     if (source) |source_| {
-//         var strings = try StringStorage.init(alloc, std.heap.page_allocator);
-//         defer strings.deinit();
+    const path = "PACKAGES-full.gz";
+    std.fs.cwd().access(path, .{}) catch return;
 
-//         var authors = Authors.init(alloc);
-//         defer authors.deinit();
+    const source: ?[]const u8 = try mos.file.readFileMaybeGzip(alloc, path);
+    try std.testing.expect(source != null);
+    defer if (source) |s| alloc.free(s);
 
-//         var timer = try std.time.Timer.start();
-//         try authors.read(source_, &strings);
-//         std.debug.print("Parse authors = {}ms\n", .{@divFloor(timer.lap(), 1_000_000)});
+    if (source) |source_| {
+        var strings = try StringStorage.init(alloc, std.heap.page_allocator);
+        defer strings.deinit();
 
-//         authors.db.debugPrint();
-//     }
-// }
+        var authors = Authors.init(alloc);
+        defer authors.deinit();
+
+        var timer = try std.time.Timer.start();
+        try authors.read(source_, &strings);
+        std.debug.print("Parse authors = {}ms\n", .{@divFloor(timer.lap(), 1_000_000)});
+
+        authors.db.debugPrint();
+    }
+}
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;

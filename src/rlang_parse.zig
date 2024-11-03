@@ -403,6 +403,7 @@ pub const Parser = struct {
                 .funcall_start => |*st| {
                     const res = try self.tokenizer.next();
                     if (res == .err) return tokenizer_err(res.err);
+
                     switch (res.ok.token) {
                         .identifier => |s| {
                             state = .{ .funcall_identifier = .{
@@ -491,9 +492,15 @@ pub const Parser = struct {
                     // deal with quoted named arguments
                     const res = try self.tokenizer.next();
                     if (res == .err) return tokenizer_err(res.err);
+
                     switch (res.ok.token) {
                         .comma => {
                             try fist.state.positional.append(.{ .string = fist.identifier.name });
+                            state = .{ .funcall_start = fist.state };
+                        },
+                        .close_round => {
+                            try fist.state.positional.append(.{ .string = fist.identifier.name });
+                            self.tokenizer.back(res.ok.loc);
                             state = .{ .funcall_start = fist.state };
                         },
                         .equal => {
@@ -685,6 +692,58 @@ test "tokenize quoted named argument" {
         .{ .string = "value" },
         .close_round,
     });
+}
+
+test "tokenize named vector argument" {
+    const alloc = std.testing.allocator;
+    const source =
+        \\ person(given = c("first", "second"))
+        \\
+    ;
+
+    var strings = try StringStorage.init(alloc, std.heap.page_allocator);
+    defer strings.deinit();
+
+    var tokenizer = Tokenizer.init(source, &strings);
+    defer tokenizer.deinit();
+
+    try tokenizeExpect(alloc, &tokenizer, &.{
+        .{ .identifier = "person" },
+        .open_round,
+        .{ .identifier = "given" },
+        .equal,
+        .{ .identifier = "c" },
+        .open_round,
+        .{ .string = "first" },
+        .comma,
+        .{ .string = "second" },
+        .close_round,
+        .close_round,
+    });
+}
+
+test "parse named vector argument" {
+    const alloc = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(alloc);
+    defer arena.deinit();
+    const source =
+        \\ person(given = c("first", "second"))
+        \\
+    ;
+    var strings = try StringStorage.init(alloc, std.heap.page_allocator);
+    defer strings.deinit();
+
+    var tokenizer = Tokenizer.init(source, &strings);
+    defer tokenizer.deinit();
+
+    var parser = Parser.init(arena.allocator(), &tokenizer, &strings);
+    defer parser.deinit();
+
+    std.debug.print("parse named vector argument:  ", .{});
+    try doParseDebug(&parser);
+    // Outputs:
+    // RESULT: 1: (funcall person (string "parenthesized string"))
+    // EOF: 34
 }
 
 test "parse parenthesized string" {
