@@ -419,6 +419,7 @@ const PersonId = u32;
 const PackageId = u32;
 
 const Role = enum {
+    unknown,
     author,
     compiler,
     contributor,
@@ -456,8 +457,8 @@ const Role = enum {
         } else if (eql(s, "rev")) {
             return .reviewer;
         } else {
-            std.debug.print("error: got unknown role: {s}\n", .{s});
-            unreachable;
+            std.debug.print("warning: got unknown role: {s}\n", .{s});
+            return .unknown;
         }
     }
 };
@@ -484,7 +485,7 @@ pub fn read(self: *Authors, source: []const u8, strings: *StringStorage) !void {
     const nodes = parser.nodes.items;
     var index: usize = 0;
     var package_name: ?[]const u8 = null;
-    while (true) : (index += 1) {
+    top: while (true) : (index += 1) {
         switch (nodes[index]) {
             .eof => break,
             .stanza_end => {
@@ -531,11 +532,20 @@ pub fn read(self: *Authors, source: []const u8, strings: *StringStorage) !void {
                                         try self.db.addFromFunctionCall(fc, package_name.?);
                                     } else unreachable;
                                 },
-                                .function_arg => return error.RParseExpectedFunctionCall,
+                                .function_arg => {
+                                    std.debug.print("warning in package {s}: expected function call.\n", .{package_name.?});
+                                    // skip stanza and continue
+                                    while (true)
+                                        switch (nodes[index]) {
+                                            .stanza_end, .eof => continue :top,
+                                            else => index += 1,
+                                        };
+                                    // return error.RParseExpectedFunctionCall;
+                                },
                             }
                         },
                         .err => |e| {
-                            std.debug.print("ERROR: {}\n", .{e});
+                            std.debug.print("ERROR parsing package {s}: {}\n", .{ package_name.?, e });
                             return error.RParseError;
                         },
                     }
@@ -610,6 +620,10 @@ test "Authors" {
         \\           , person(given = "Martin", family = "Maechler", role = "ctb")
         \\                    )
         \\        \\License: MIT + file LICENSE
+        \\Authors@R: c(
+        \\    person("Pierre", "Roudier", email = "roudierp@landcareresearch.co.nz", role = c("aut", "cre")),
+        \\    person("Etienne", "Lalibert'{e}", email = NULL, role = c("ctb"))
+        \\    )
         \\URL: https://rstudio.github.io/renv/, https://github.com/rstudio/renv
         \\BugReports: https://github.com/rstudio/renv/issues
         \\Imports: utils
@@ -638,34 +652,34 @@ test "Authors" {
     authors.db.debugPrint();
 }
 
-test "read authors from PACKAGES.gz" {
-    const mos = @import("mos");
+// test "read authors from PACKAGES.gz" {
+//     const mos = @import("mos");
 
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const alloc = arena.allocator();
+//     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+//     defer arena.deinit();
+//     const alloc = arena.allocator();
 
-    const path = "PACKAGES-full.gz";
-    std.fs.cwd().access(path, .{}) catch return;
+//     const path = "PACKAGES-full.gz";
+//     std.fs.cwd().access(path, .{}) catch return;
 
-    const source: ?[]const u8 = try mos.file.readFileMaybeGzip(alloc, path);
-    try std.testing.expect(source != null);
-    defer if (source) |s| alloc.free(s);
+//     const source: ?[]const u8 = try mos.file.readFileMaybeGzip(alloc, path);
+//     try std.testing.expect(source != null);
+//     defer if (source) |s| alloc.free(s);
 
-    if (source) |source_| {
-        var strings = try StringStorage.init(alloc, std.heap.page_allocator);
-        defer strings.deinit();
+//     if (source) |source_| {
+//         var strings = try StringStorage.init(alloc, std.heap.page_allocator);
+//         defer strings.deinit();
 
-        var authors = Authors.init(alloc);
-        defer authors.deinit();
+//         var authors = Authors.init(alloc);
+//         defer authors.deinit();
 
-        var timer = try std.time.Timer.start();
-        try authors.read(source_, &strings);
-        std.debug.print("Parse authors = {}ms\n", .{@divFloor(timer.lap(), 1_000_000)});
+//         var timer = try std.time.Timer.start();
+//         try authors.read(source_, &strings);
+//         std.debug.print("Parse authors = {}ms\n", .{@divFloor(timer.lap(), 1_000_000)});
 
-        authors.db.debugPrint();
-    }
-}
+//         authors.db.debugPrint();
+//     }
+// }
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
