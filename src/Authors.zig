@@ -242,6 +242,7 @@ const AuthorsDB = struct {
                     .string => |s| try self.putNewString(package_id, person_id, attr_id, s),
                     else => {
                         std.debug.print("ERROR: unexpected function call in named argument: {s}\n", .{package_name});
+                        return error.ParseError;
                     },
                 }
             }
@@ -487,7 +488,7 @@ pub fn read(self: *Authors, source: []const u8, strings: *StringStorage) !void {
                         .ok => |ok| {
                             switch (ok.node) {
                                 .function_call => |fc| {
-                                    std.debug.print("Parsed: {}\n", .{fc});
+                                    // std.debug.print("Parsed: {}\n", .{fc});
 
                                     // outer function can be c() or person()
                                     if (std.mem.eql(u8, "c", fc.name)) {
@@ -554,11 +555,33 @@ test "Authors" {
         \\                    role=c("aut", "cre","ctb")),
         \\               person(("Gajendra Kumar"), "Vishwakarma", role=c("aut","ctb")),
         \\               person(("Pragya"), "Kumari", role=c("aut","ctb")))
-        \\Description: A dependency management toolkit for R. Using 'renv', you can create
+        \\Authors@R: c(person("Patrick", "Mair", role = c("aut", "cre"), email = "mair@fas.harvard.edu"), person("Jan", "De Leeuw", role = "aut"))
+        \\Authors@R: c(
+        \\    person("Scott", "Chamberlain", role = "aut",
+        \\        email = "myrmecocystus@gmail.com",
+        \\        comment = c(ORCID="0000-0003-1444-9135")),
+        \\    person("Hadley", "Wickham", role = "aut", email = "hadley@rstudio.com"),
+        \\    person("Winston", "Chang", role = "aut", email = "winston@stdout.org"),
+        \\    person("Bob", "Rudis", role = "ctb", email = "bob@rudis.net"),
+        \\    person("Bryce", "Mecum", role = "ctb", email = "brycemecum@gmail.com",
+        \\           comment = c("ORCID" = "0000-0002-0381-3766")),
+        \\    person("Mauricio", "Vargas", role = c("aut", "cre"), email = "mavargas11@uc.cl",
+        \\           comment = c(ORCID = "0000-0003-1017-7574")),
+        \\    person("RStudio", role = "cph"),
+        \\    person("DigitalOcean", role = "cph")
+        \\    )
+        \\        \\Description: A dependency management toolkit for R. Using 'renv', you can create
         \\    and manage project-local R libraries, save the state of these libraries to
         \\    a 'lockfile', and later restore your library as required. Together, these
         \\    tools can help make your projects more isolated, portable, and reproducible.
-        \\License: MIT + file LICENSE
+        \\Authors@R: c(person(given = c("Gavin", "L."), family = "Simpson",
+        \\                    role = c("aut", "cre"),
+        \\                    email = "ucfagls@gmail.com",
+        \\                    comment = c(ORCID = "0000-0002-9084-8413"))
+        \\           , person(given = "Jari", family = "Oksanen",  role = "aut")
+        \\           , person(given = "Martin", family = "Maechler", role = "ctb")
+        \\                    )
+        \\        \\License: MIT + file LICENSE
         \\URL: https://rstudio.github.io/renv/, https://github.com/rstudio/renv
         \\BugReports: https://github.com/rstudio/renv/issues
         \\Imports: utils
