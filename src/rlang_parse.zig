@@ -355,6 +355,10 @@ pub const Parser = struct {
                 state: FuncallState,
                 identifier: struct { name: []const u8, loc: usize },
             },
+            funcall_string: struct {
+                state: FuncallState,
+                identifier: struct { name: []const u8, loc: usize },
+            },
             funcall_identifier_equal: struct {
                 state: FuncallState,
                 identifier: struct { name: []const u8, loc: usize },
@@ -379,31 +383,6 @@ pub const Parser = struct {
                         .close_round => return err(.close_round, res.ok.loc),
                         .eof => return err(.eof, res.ok.loc),
                         .open_round, .equal => return err(.expected_identifier, res.ok.loc),
-                    }
-                },
-                .funcall_open_round_expect_string => |st| {
-                    const res = try self.tokenizer.next();
-                    if (res == .err) return tokenizer_err(res.err);
-                    switch (res.ok.token) {
-                        .string => |s| {
-                            state = .{ .funcall_open_round_string = .{
-                                .state = st,
-                                .string = s,
-                                .loc = res.ok.loc,
-                            } };
-                        },
-                        else => return err(.expected_string, res.ok.loc),
-                    }
-                },
-                .funcall_open_round_string => |*ors| {
-                    const res = try self.tokenizer.next();
-                    if (res == .err) return tokenizer_err(res.err);
-                    switch (res.ok.token) {
-                        .close_round => {
-                            try ors.state.positional.append(.{ .string = ors.string });
-                            state = .{ .funcall_start = ors.state };
-                        },
-                        else => return err(.expected_close_round, res.ok.loc),
                     }
                 },
                 .identifier => |s| {
@@ -431,7 +410,12 @@ pub const Parser = struct {
                                 .identifier = .{ .name = s, .loc = res.ok.loc },
                             } };
                         },
-                        .string => |s| try st.positional.append(.{ .string = s }),
+                        .string => |s| {
+                            state = .{ .funcall_string = .{
+                                .state = st.*,
+                                .identifier = .{ .name = s, .loc = res.ok.loc },
+                            } };
+                        },
                         .comma => state = .{ .funcall_comma = st.* },
                         .open_round => state = .{ .funcall_open_round_expect_string = st.* },
                         .close_round => {
@@ -497,7 +481,34 @@ pub const Parser = struct {
                             try fist.state.positional.append(.{ .function_call = fc });
                             state = .{ .funcall_start = fist.state };
                         },
-                        else => return err(.unexpected_token, res.ok.loc),
+                        else => {
+                            self.tokenizer.back(res.ok.loc);
+                            state = .{ .funcall_start = fist.state };
+                        },
+                    }
+                },
+                .funcall_string => |*fist| {
+                    // deal with quoted named arguments
+                    const res = try self.tokenizer.next();
+                    if (res == .err) return tokenizer_err(res.err);
+                    switch (res.ok.token) {
+                        .comma => {
+                            try fist.state.positional.append(.{ .string = fist.identifier.name });
+                            state = .{ .funcall_start = fist.state };
+                        },
+                        .equal => {
+                            state = .{ .funcall_identifier_equal = .{
+                                .state = fist.state,
+                                .identifier = .{
+                                    .name = fist.identifier.name,
+                                    .loc = fist.identifier.loc,
+                                },
+                            } };
+                        },
+                        else => {
+                            self.tokenizer.back(res.ok.loc);
+                            state = .{ .funcall_start = fist.state };
+                        },
                     }
                 },
                 .funcall_identifier_equal => |*fiest| {
@@ -512,6 +523,31 @@ pub const Parser = struct {
                     na.value = FunctionArg.fromNode(res.ok.node);
                     try fiest.state.named.append(na);
                     state = .{ .funcall_start = fiest.state };
+                },
+                .funcall_open_round_expect_string => |st| {
+                    const res = try self.tokenizer.next();
+                    if (res == .err) return tokenizer_err(res.err);
+                    switch (res.ok.token) {
+                        .string => |s| {
+                            state = .{ .funcall_open_round_string = .{
+                                .state = st,
+                                .string = s,
+                                .loc = res.ok.loc,
+                            } };
+                        },
+                        else => return err(.expected_string, res.ok.loc),
+                    }
+                },
+                .funcall_open_round_string => |*ors| {
+                    const res = try self.tokenizer.next();
+                    if (res == .err) return tokenizer_err(res.err);
+                    switch (res.ok.token) {
+                        .close_round => {
+                            try ors.state.positional.append(.{ .string = ors.string });
+                            state = .{ .funcall_start = ors.state };
+                        },
+                        else => return err(.expected_close_round, res.ok.loc),
+                    }
                 },
             }
         }
@@ -679,7 +715,7 @@ test "parse quoted named argument" {
     var arena = std.heap.ArenaAllocator.init(alloc);
     defer arena.deinit();
     const source =
-        \\ person("argument" = "value")
+        \\ person("quoted-argument" = "value")
         \\
     ;
     var strings = try StringStorage.init(alloc, std.heap.page_allocator);
@@ -693,8 +729,8 @@ test "parse quoted named argument" {
 
     try doParseDebug(&parser);
     // Outputs:
-    // RESULT: 1: (funcall person (string "parenthesized string"))
-    // EOF: 34
+    // RESULT: 1: (funcall person (named-argument quoted-argument (string "value")))
+    // EOF: 37
 }
 
 test "parse" {
