@@ -215,7 +215,6 @@ const AuthorsDB = struct {
                                     },
                                     .function_call => |cfc| {
                                         if (eql("c", cfc.name)) {
-                                            // XXX
                                             // comment = c(ORCID = c("123"))
                                             // put each positional as attribute value, and each named, ignoring name
 
@@ -533,16 +532,24 @@ pub fn read(self: *Authors, source: []const u8, strings: *StringStorage) !void {
     const nodes = parser.nodes.items;
     var index: usize = 0;
     var package_name: ?[]const u8 = null;
+    var prev_package_name: ?[]const u8 = null;
     top: while (true) : (index += 1) {
         switch (nodes[index]) {
             .eof => break,
             .stanza_end => {
+                prev_package_name = package_name;
                 package_name = null;
             },
             .field => |field| {
                 if (std.ascii.eqlIgnoreCase("package", field.name)) {
                     package_name = try parsePackageName(nodes, &index, strings);
+                    std.debug.print("Package: {?s}\n", .{package_name});
                 } else if (std.ascii.eqlIgnoreCase("authors@r", field.name)) {
+                    if (package_name == null) {
+                        std.debug.print("warning, skipping package after '{?s}' due to authors@r field preceeding package field.\n", .{prev_package_name});
+                        continue;
+                    }
+
                     assert(package_name != null);
 
                     const field_source = b: {

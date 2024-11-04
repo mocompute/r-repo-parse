@@ -88,6 +88,7 @@ pub const Tokenizer = struct {
         const State = enum {
             start,
             identifier,
+            number,
             string,
             string_backslash,
             string_single,
@@ -110,6 +111,11 @@ pub const Tokenizer = struct {
             switch (state) {
                 .start => switch (c) {
                     'A'...'Z', 'a'...'z', '_', '.' => state = .identifier,
+                    '0'...'9' => {
+                        // treat numbers integers as strings
+                        string.start = cpos;
+                        state = .number;
+                    },
                     '"' => {
                         string.start = cpos;
                         state = .string;
@@ -162,6 +168,15 @@ pub const Tokenizer = struct {
                         return ok(.{ .identifier = s }, string.start);
                     },
                 },
+                .number => switch (c) {
+                    '0'...'9', '-', '.' => continue,
+                    else => {
+                        self.index -= 1; // backtrack
+                        string.end = cpos;
+                        const s = try self.strings.append(self.buffer[string.start..string.end]);
+                        return ok(.{ .string = s }, string.start);
+                    },
+                },
             }
         }
 
@@ -172,6 +187,11 @@ pub const Tokenizer = struct {
                 string.end = self.index;
                 const s = try self.strings.append(self.buffer[string.start..string.end]);
                 return ok(.{ .identifier = s }, string.start);
+            },
+            .number => {
+                string.end = self.index;
+                const s = try self.strings.append(self.buffer[string.start..string.end]);
+                return ok(.{ .string = s }, string.start);
             },
             .string, .string_single, .string_backslash, .string_single_backslash => {
                 return err(.unterminated_string, string.start);
@@ -343,6 +363,7 @@ pub const Parser = struct {
 
         expected_identifier,
         expected_argument,
+        expected_equal,
         expected_funcall,
         expected_string,
         expected_close_round,
@@ -360,6 +381,7 @@ pub const Parser = struct {
             start,
             open_round,
             open_round_string: struct { string: []const u8, loc: usize },
+            open_round_identifier: struct { string: []const u8, loc: usize },
             identifier: struct { name: []const u8, loc: usize },
             funcall_start: FuncallState,
             funcall_comma: FuncallState,
@@ -403,6 +425,7 @@ pub const Parser = struct {
                     if (res == .err) return tokenizer_err(res.err);
                     switch (res.ok.token) {
                         .string => |s| state = .{ .open_round_string = .{ .string = s, .loc = res.ok.loc } },
+                        .identifier => |s| state = .{ .open_round_identifier = .{ .string = s, .loc = res.ok.loc } },
                         else => return err(.expected_string, res.ok.loc),
                     }
                 },
@@ -412,6 +435,19 @@ pub const Parser = struct {
                     switch (res.ok.token) {
                         .close_round => return ok(.{ .string = s.string }, s.loc),
                         else => return err(.expected_close_round, res.ok.loc),
+                    }
+                },
+                .open_round_identifier => |_| {
+                    const res = try self.tokenizer.next();
+                    if (res == .err) return tokenizer_err(res.err);
+
+                    // expect equal and drop/ignore identifier. E.g.:
+                    // (name=val), as in: person(...,
+                    // comment=(name=val) which is missing a function
+                    // name, probably should be comment=c(name=val)
+                    switch (res.ok.token) {
+                        .equal => state = .open_round,
+                        else => return err(.expected_equal, res.ok.loc),
                     }
                 },
                 .identifier => |s| {
