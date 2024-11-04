@@ -367,7 +367,7 @@ pub const Parser = struct {
         expected_funcall,
         expected_string,
         expected_close_round,
-        unexpected_token,
+        unexpected_token: Token,
         tokenizer_error: Tokenizer.Err,
     };
 
@@ -462,8 +462,12 @@ pub const Parser = struct {
                             },
                         },
                         .comma => return ok(.{ .identifier = s.name }, s.loc),
+                        .close_round => {
+                            self.tokenizer.back(res.ok.loc); // backtrack
+                            return ok(.{ .identifier = s.name }, s.loc);
+                        },
                         .eof => return ok(.{ .identifier = s.name }, res.ok.loc),
-                        else => return err(.unexpected_token, res.ok.loc),
+                        else => |tok| return err(.{ .unexpected_token = tok }, res.ok.loc),
                     }
                 },
                 .funcall_start => |*st| {
@@ -493,7 +497,11 @@ pub const Parser = struct {
                                 .named = try st.named.toOwnedSlice(),
                             }, st.name.loc);
                         },
-                        else => return err(.unexpected_token, res.ok.loc),
+
+                        else => |tok| {
+                            std.debug.print("error: unexpected token in function {}\n", .{st});
+                            return err(.{ .unexpected_token = tok }, res.ok.loc);
+                        },
                     }
                 },
                 .funcall_comma => |*st| {
@@ -627,7 +635,13 @@ pub const Parser = struct {
     }
 
     fn ok(node: FunctionArg, loc: usize) Result {
-        return .{ .ok = .{ .node = .{ .function_arg = node }, .loc = loc } };
+        const eql = std.ascii.eqlIgnoreCase;
+        const node_: FunctionArg = switch (node) {
+            .identifier => |s| if (eql("null", s)) .null else node,
+            else => node,
+        };
+
+        return .{ .ok = .{ .node = .{ .function_arg = node_ }, .loc = loc } };
     }
     fn ok_function_call(node: FunctionCall, loc: usize) Result {
         return .{ .ok = .{ .node = .{ .function_call = node }, .loc = loc } };
@@ -787,6 +801,44 @@ test "tokenize named vector argument" {
         .close_round,
     });
 }
+test "tokenize comment = NULL" {
+    const alloc = std.testing.allocator;
+    const source =
+        \\    person("Xiurui", "Zhu", , "zxr6@163.com", role = c("aut", "cre"),
+        \\           comment = NULL)
+    ;
+
+    var strings = try StringStorage.init(alloc, std.heap.page_allocator);
+    defer strings.deinit();
+
+    var tokenizer = Tokenizer.init(source, &strings);
+    defer tokenizer.deinit();
+
+    try tokenizeExpect(alloc, &tokenizer, &.{
+        .{ .identifier = "person" },
+        .open_round,
+        .{ .string = "Xiurui" },
+        .comma,
+        .{ .string = "Zhu" },
+        .comma,
+        .comma,
+        .{ .string = "zxr6@163.com" },
+        .comma,
+        .{ .identifier = "role" },
+        .equal,
+        .{ .identifier = "c" },
+        .open_round,
+        .{ .string = "aut" },
+        .comma,
+        .{ .string = "cre" },
+        .close_round,
+        .comma,
+        .{ .identifier = "comment" },
+        .equal,
+        .{ .identifier = "NULL" },
+        .close_round,
+    });
+}
 
 test "parse named vector argument" {
     const alloc = std.testing.allocator;
@@ -842,6 +894,29 @@ test "parse quoted named argument" {
     const source =
         \\ person("quoted-argument" = "value")
         \\
+    ;
+    var strings = try StringStorage.init(alloc, std.heap.page_allocator);
+    defer strings.deinit();
+
+    var tokenizer = Tokenizer.init(source, &strings);
+    defer tokenizer.deinit();
+
+    var parser = Parser.init(arena.allocator(), &tokenizer, &strings);
+    defer parser.deinit();
+
+    try doParseDebug(&parser);
+    // Outputs:
+    // RESULT: 1: (funcall person (named-argument quoted-argument (string "value")))
+    // EOF: 37
+}
+
+test "parse comment = NULL" {
+    const alloc = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(alloc);
+    defer arena.deinit();
+    const source =
+        \\    person("Xiurui", "Zhu", , "zxr6@163.com", role = c("aut", "cre"),
+        \\           comment = NULL)
     ;
     var strings = try StringStorage.init(alloc, std.heap.page_allocator);
     defer strings.deinit();
