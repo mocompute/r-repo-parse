@@ -595,15 +595,28 @@ pub const Parser = struct {
                 .funcall_identifier_equal => |*fiest| {
                     // parse next expression
                     const res = try self.next();
-                    if (res == .err) return res;
-
-                    var na: NamedArgument = .{
-                        .name = fiest.identifier.name,
-                        .value = .null,
-                    };
-                    na.value = FunctionArg.fromNode(res.ok.node);
-                    try fiest.state.named.append(na);
-                    state = .{ .funcall_start = fiest.state };
+                    switch (res) {
+                        .err => |e| {
+                            if (e.err == .close_round) {
+                                const na: NamedArgument = .{
+                                    .name = fiest.identifier.name,
+                                    .value = .null,
+                                };
+                                try fiest.state.named.append(na);
+                                self.tokenizer.back(e.loc); // backtrack
+                                state = .{ .funcall_start = fiest.state };
+                            } else return res;
+                        },
+                        .ok => {
+                            var na: NamedArgument = .{
+                                .name = fiest.identifier.name,
+                                .value = .null,
+                            };
+                            na.value = FunctionArg.fromNode(res.ok.node);
+                            try fiest.state.named.append(na);
+                            state = .{ .funcall_start = fiest.state };
+                        },
+                    }
                 },
                 .funcall_open_round_expect_string => |st| {
                     const res = try self.tokenizer.next();
@@ -917,6 +930,28 @@ test "parse comment = NULL" {
     const source =
         \\    person("Xiurui", "Zhu", , "zxr6@163.com", role = c("aut", "cre"),
         \\           comment = NULL)
+    ;
+    var strings = try StringStorage.init(alloc, std.heap.page_allocator);
+    defer strings.deinit();
+
+    var tokenizer = Tokenizer.init(source, &strings);
+    defer tokenizer.deinit();
+
+    var parser = Parser.init(arena.allocator(), &tokenizer, &strings);
+    defer parser.deinit();
+
+    try doParseDebug(&parser);
+    // Outputs:
+    // RESULT: 1: (funcall person (named-argument quoted-argument (string "value")))
+    // EOF: 37
+}
+
+test "parse email=)" {
+    const alloc = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(alloc);
+    defer arena.deinit();
+    const source =
+        \\    person(given = "Alfio", family = "Marazzi", role = "aut", email=)
     ;
     var strings = try StringStorage.init(alloc, std.heap.page_allocator);
     defer strings.deinit();
