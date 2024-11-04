@@ -213,8 +213,33 @@ const AuthorsDB = struct {
                                     .string => |comment_s| {
                                         try self.putNewString(package_id, person_id, attr_id, comment_s);
                                     },
+                                    .function_call => |cfc| {
+                                        if (eql("c", cfc.name)) {
+                                            // XXX
+                                            // comment = c(ORCID = c("123"))
+                                            // put each positional as attribute value, and each named, ignoring name
+
+                                            for (cfc.positional) |fa| switch (fa) {
+                                                .string => |s| try self.putNewString(package_id, person_id, attr_id, s),
+                                                else => {
+                                                    std.debug.print("ERROR: package {s}: expected string in comment function argument.\n", .{package_name});
+                                                    unreachable;
+                                                },
+                                            };
+                                            for (cfc.named) |cna| switch (cna.value) {
+                                                .string => |s| try self.putNewString(package_id, person_id, attr_id, s),
+                                                else => {
+                                                    std.debug.print("ERROR: package {s}: expected string in comment function named argument.\n", .{package_name});
+                                                    unreachable;
+                                                },
+                                            };
+                                        } else {
+                                            std.debug.print("ERROR: package {s}: unsupported function in comment.\n", .{package_name});
+                                            unreachable;
+                                        }
+                                    },
                                     else => {
-                                        std.debug.print("ERROR: package {s}: expected string.\n", .{package_name});
+                                        std.debug.print("ERROR: package {s}: expected string in comment.\n", .{package_name});
                                         unreachable;
                                     },
                                 }
@@ -236,7 +261,7 @@ const AuthorsDB = struct {
                                 switch (fa) {
                                     .string => |s| try self.putNewRole(package_id, person_id, attr_id, Role.fromString(s)),
                                     else => {
-                                        std.debug.print("ERROR: package {s}: expected string.\n", .{package_name});
+                                        std.debug.print("ERROR: package {s}: expected string in role.\n", .{package_name});
                                         unreachable;
                                     },
                                 }
