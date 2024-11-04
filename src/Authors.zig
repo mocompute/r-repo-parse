@@ -202,15 +202,18 @@ const AuthorsDB = struct {
             if (eql("comment", na.name)) {
                 attr_id = try self.attributeId("comment");
                 switch (na.value) {
-                    .string => |s| {
-                        try self.putNewString(package_id, person_id, attr_id, s);
-                    },
+                    .string, .identifier => |s| try self.putNewString(package_id, person_id, attr_id, s), // TODO: permissive
+
                     .function_call => |comment_fc| {
                         if (eql("c", comment_fc.name)) {
                             for (comment_fc.named) |comment_na| {
                                 attr_id = try self.attributeId(comment_na.name);
                                 switch (comment_na.value) {
                                     .string => |comment_s| {
+                                        try self.putNewString(package_id, person_id, attr_id, comment_s);
+                                    },
+                                    .identifier => |comment_s| {
+                                        // TODO: too permissive?
                                         try self.putNewString(package_id, person_id, attr_id, comment_s);
                                     },
                                     .function_call => |cfc| {
@@ -237,23 +240,18 @@ const AuthorsDB = struct {
                                             unreachable;
                                         }
                                     },
-                                    else => {
-                                        std.debug.print("ERROR: package {s}: expected string in comment.\n", .{package_name});
-                                        unreachable;
-                                    },
+                                    .null => {},
                                 }
                             }
                         }
                     },
-                    else => {
-                        std.debug.print("ERROR: package {s}: \n", .{package_name});
-                        unreachable;
-                    },
+                    .null => {},
                 }
             } else if (eql("role", na.name)) {
                 attr_id = try self.attributeId("role");
                 switch (na.value) {
                     .string => |s| try self.putNewRole(package_id, person_id, attr_id, Role.fromString(s)),
+                    .identifier => |s| try self.putNewRole(package_id, person_id, attr_id, Role.fromString(s)), // TODO: too permissive?
                     .function_call => |role_fc| {
                         if (eql("c", role_fc.name)) {
                             for (role_fc.positional) |fa| {
@@ -271,10 +269,7 @@ const AuthorsDB = struct {
                             }
                         }
                     },
-                    else => {
-                        std.debug.print("ERROR: package {s}: \n", .{package_name});
-                        unreachable;
-                    },
+                    .null => {},
                 }
             } else {
                 attr_id = try self.attributeId(na.name);
@@ -292,7 +287,8 @@ const AuthorsDB = struct {
                         if (eql("c", other_fc.name)) {
                             for (other_fc.positional, 1..) |fa, pos| {
                                 switch (fa) {
-                                    .string => |s| {
+                                    .string, .identifier => |s| {
+                                        // TODO: identifier as string too permissive?
                                         if (pos == 1) {
                                             // use unindexed name for first element
                                             try self.putNewString(package_id, person_id, attr_id, s);
@@ -312,10 +308,7 @@ const AuthorsDB = struct {
                             }
                         }
                     },
-                    else => {
-                        std.debug.print("ERROR: unexpected function call in named argument: {s}\n", .{package_name});
-                        return error.ParseError;
-                    },
+                    .null => {},
                 }
             }
         } // named arguments
@@ -543,7 +536,6 @@ pub fn read(self: *Authors, source: []const u8, strings: *StringStorage) !void {
             .field => |field| {
                 if (std.ascii.eqlIgnoreCase("package", field.name)) {
                     package_name = try parsePackageName(nodes, &index, strings);
-                    std.debug.print("Package: {?s}\n", .{package_name});
                 } else if (std.ascii.eqlIgnoreCase("authors@r", field.name)) {
                     if (package_name == null) {
                         std.debug.print("warning, skipping package after '{?s}' due to authors@r field preceeding package field.\n", .{prev_package_name});
@@ -663,10 +655,6 @@ test "Authors" {
         \\    person("RStudio", role = "cph"),
         \\    person("DigitalOcean", role = "cph")
         \\    )
-        \\        \\Description: A dependency management toolkit for R. Using 'renv', you can create
-        \\    and manage project-local R libraries, save the state of these libraries to
-        \\    a 'lockfile', and later restore your library as required. Together, these
-        \\    tools can help make your projects more isolated, portable, and reproducible.
         \\Authors@R: c(person(given = c("Gavin", "L."), family = "Simpson",
         \\                    role = c("aut", "cre"),
         \\                    email = "ucfagls@gmail.com",
@@ -674,7 +662,6 @@ test "Authors" {
         \\           , person(given = "Jari", family = "Oksanen",  role = "aut")
         \\           , person(given = "Martin", family = "Maechler", role = "ctb")
         \\                    )
-        \\        \\License: MIT + file LICENSE
         \\Authors@R: c(
         \\    person("Pierre", "Roudier", email = "roudierp@landcareresearch.co.nz", role = c("aut", "cre")),
         \\    person("Etienne", "Lalibert'{e}", email = NULL, role = c("ctb"))
@@ -707,7 +694,7 @@ test "Authors" {
     authors.db.debugPrint();
 }
 
-test "read authors from PACKAGES.gz" {
+test "read authors from PACKAGES-full.gz" {
     const mos = @import("mos");
 
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
