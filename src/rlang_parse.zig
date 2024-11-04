@@ -89,7 +89,10 @@ pub const Tokenizer = struct {
             start,
             identifier,
             string,
+            string_backslash,
             string_single,
+            string_single_backslash,
+            hash,
         };
         const Loc = struct {
             start: usize,
@@ -120,7 +123,12 @@ pub const Tokenizer = struct {
                     '=' => return ok(.equal, cpos),
                     ',' => return ok(.comma, cpos),
                     '\n', '\r', '\t', ' ' => string.start = self.index, // skip whitespace
+                    '#' => state = .hash,
                     else => return err(.bad_token, cpos),
+                },
+                .hash => switch (c) {
+                    '\n' => state = .start,
+                    else => continue,
                 },
                 .string => switch (c) {
                     '"' => {
@@ -129,6 +137,7 @@ pub const Tokenizer = struct {
                         const s = try self.strings.append(self.buffer[string.start + 1 .. string.end]);
                         return ok(.{ .string = s }, string.start);
                     },
+                    '\\' => state = .string_backslash,
                     else => continue,
                 },
                 .string_single => switch (c) {
@@ -138,8 +147,12 @@ pub const Tokenizer = struct {
                         const s = try self.strings.append(self.buffer[string.start + 1 .. string.end]);
                         return ok(.{ .string = s }, string.start);
                     },
+                    '\\' => state = .string_single_backslash,
                     else => continue,
                 },
+                .string_backslash => state = .string,
+                .string_single_backslash => state = .string_single,
+
                 .identifier => switch (c) {
                     'A'...'Z', 'a'...'z', '0'...'9', '-', '_', '.' => continue,
                     else => {
@@ -154,16 +167,13 @@ pub const Tokenizer = struct {
 
         // end of input reached
         switch (state) {
-            .start => return ok(.eof, self.index),
+            .start, .hash => return ok(.eof, self.index),
             .identifier => {
                 string.end = self.index;
                 const s = try self.strings.append(self.buffer[string.start..string.end]);
                 return ok(.{ .identifier = s }, string.start);
             },
-            .string => {
-                return err(.unterminated_string, string.start);
-            },
-            .string_single => {
+            .string, .string_single, .string_backslash, .string_single_backslash => {
                 return err(.unterminated_string, string.start);
             },
         }
@@ -348,6 +358,8 @@ pub const Parser = struct {
         };
         const State = union(enum) {
             start,
+            open_round,
+            open_round_string: struct { string: []const u8, loc: usize },
             identifier: struct { name: []const u8, loc: usize },
             funcall_start: FuncallState,
             funcall_comma: FuncallState,
@@ -382,7 +394,24 @@ pub const Parser = struct {
                         .comma => return err(.comma, res.ok.loc),
                         .close_round => return err(.close_round, res.ok.loc),
                         .eof => return err(.eof, res.ok.loc),
-                        .open_round, .equal => return err(.expected_identifier, res.ok.loc),
+                        .open_round => state = .open_round,
+                        .equal => return err(.expected_identifier, res.ok.loc),
+                    }
+                },
+                .open_round => {
+                    const res = try self.tokenizer.next();
+                    if (res == .err) return tokenizer_err(res.err);
+                    switch (res.ok.token) {
+                        .string => |s| state = .{ .open_round_string = .{ .string = s, .loc = res.ok.loc } },
+                        else => return err(.expected_string, res.ok.loc),
+                    }
+                },
+                .open_round_string => |s| {
+                    const res = try self.tokenizer.next();
+                    if (res == .err) return tokenizer_err(res.err);
+                    switch (res.ok.token) {
+                        .close_round => return ok(.{ .string = s.string }, s.loc),
+                        else => return err(.expected_close_round, res.ok.loc),
                     }
                 },
                 .identifier => |s| {
@@ -396,6 +425,7 @@ pub const Parser = struct {
                                 .named = std.ArrayList(NamedArgument).init(self.alloc),
                             },
                         },
+                        .comma => return ok(.{ .identifier = s.name }, s.loc),
                         .eof => return ok(.{ .identifier = s.name }, res.ok.loc),
                         else => return err(.unexpected_token, res.ok.loc),
                     }

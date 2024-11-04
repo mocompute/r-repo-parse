@@ -183,7 +183,10 @@ const AuthorsDB = struct {
                         else => null,
                     };
                 },
-                else => unreachable,
+                else => {
+                    std.debug.print("ERROR: package {s}: too many positional arguments.\n", .{package_name});
+                    unreachable;
+                },
             }
 
             if (string_value) |s| {
@@ -210,12 +213,18 @@ const AuthorsDB = struct {
                                     .string => |comment_s| {
                                         try self.putNewString(package_id, person_id, attr_id, comment_s);
                                     },
-                                    else => unreachable,
+                                    else => {
+                                        std.debug.print("ERROR: package {s}: expected string.\n", .{package_name});
+                                        unreachable;
+                                    },
                                 }
                             }
                         }
                     },
-                    else => unreachable,
+                    else => {
+                        std.debug.print("ERROR: package {s}: \n", .{package_name});
+                        unreachable;
+                    },
                 }
             } else if (eql("role", na.name)) {
                 attr_id = try self.attributeId("role");
@@ -226,20 +235,34 @@ const AuthorsDB = struct {
                             for (role_fc.positional) |fa| {
                                 switch (fa) {
                                     .string => |s| try self.putNewRole(package_id, person_id, attr_id, Role.fromString(s)),
-                                    else => unreachable,
+                                    else => {
+                                        std.debug.print("ERROR: package {s}: expected string.\n", .{package_name});
+                                        unreachable;
+                                    },
                                 }
                             }
                             for (role_fc.named) |_| {
+                                std.debug.print("ERROR: package {s}: named role not supported.\n", .{package_name});
                                 unreachable;
                             }
                         }
                     },
-                    else => unreachable,
+                    else => {
+                        std.debug.print("ERROR: package {s}: \n", .{package_name});
+                        unreachable;
+                    },
                 }
             } else {
                 attr_id = try self.attributeId(na.name);
                 switch (na.value) {
                     .string => |s| try self.putNewString(package_id, person_id, attr_id, s),
+                    .identifier => |s| {
+                        // ignore named arguments with null value
+                        if (eql("null", s)) continue;
+
+                        // treat other identifier values as string
+                        try self.putNewString(package_id, person_id, attr_id, s);
+                    },
                     .function_call => |other_fc| {
                         // support vector of attribute values by appending index to attribute name
                         if (eql("c", other_fc.name)) {
@@ -652,34 +675,34 @@ test "Authors" {
     authors.db.debugPrint();
 }
 
-// test "read authors from PACKAGES.gz" {
-//     const mos = @import("mos");
+test "read authors from PACKAGES.gz" {
+    const mos = @import("mos");
 
-//     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-//     defer arena.deinit();
-//     const alloc = arena.allocator();
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
 
-//     const path = "PACKAGES-full.gz";
-//     std.fs.cwd().access(path, .{}) catch return;
+    const path = "PACKAGES-full.gz";
+    std.fs.cwd().access(path, .{}) catch return;
 
-//     const source: ?[]const u8 = try mos.file.readFileMaybeGzip(alloc, path);
-//     try std.testing.expect(source != null);
-//     defer if (source) |s| alloc.free(s);
+    const source: ?[]const u8 = try mos.file.readFileMaybeGzip(alloc, path);
+    try std.testing.expect(source != null);
+    defer if (source) |s| alloc.free(s);
 
-//     if (source) |source_| {
-//         var strings = try StringStorage.init(alloc, std.heap.page_allocator);
-//         defer strings.deinit();
+    if (source) |source_| {
+        var strings = try StringStorage.init(alloc, std.heap.page_allocator);
+        defer strings.deinit();
 
-//         var authors = Authors.init(alloc);
-//         defer authors.deinit();
+        var authors = Authors.init(alloc);
+        defer authors.deinit();
 
-//         var timer = try std.time.Timer.start();
-//         try authors.read(source_, &strings);
-//         std.debug.print("Parse authors = {}ms\n", .{@divFloor(timer.lap(), 1_000_000)});
+        var timer = try std.time.Timer.start();
+        try authors.read(source_, &strings);
+        std.debug.print("Parse authors = {}ms\n", .{@divFloor(timer.lap(), 1_000_000)});
 
-//         authors.db.debugPrint();
-//     }
-// }
+        authors.db.debugPrint();
+    }
+}
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
