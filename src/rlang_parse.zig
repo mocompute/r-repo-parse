@@ -597,7 +597,7 @@ pub const Parser = struct {
                     const res = try self.next();
                     switch (res) {
                         .err => |e| {
-                            if (e.err == .close_round) {
+                            if (e.err == .close_round or e.err == .comma) {
                                 const na: NamedArgument = .{
                                     .name = fiest.identifier.name,
                                     .value = .null,
@@ -872,9 +872,6 @@ test "parse named vector argument" {
 
     std.debug.print("parse named vector argument:  ", .{});
     try doParseDebug(&parser);
-    // Outputs:
-    // RESULT: 1: (funcall person (string "parenthesized string"))
-    // EOF: 34
 }
 
 test "parse parenthesized string" {
@@ -895,9 +892,6 @@ test "parse parenthesized string" {
     defer parser.deinit();
 
     try doParseDebug(&parser);
-    // Outputs:
-    // RESULT: 1: (funcall person (string "parenthesized string"))
-    // EOF: 34
 }
 
 test "parse quoted named argument" {
@@ -918,9 +912,6 @@ test "parse quoted named argument" {
     defer parser.deinit();
 
     try doParseDebug(&parser);
-    // Outputs:
-    // RESULT: 1: (funcall person (named-argument quoted-argument (string "value")))
-    // EOF: 37
 }
 
 test "parse comment = NULL" {
@@ -941,9 +932,6 @@ test "parse comment = NULL" {
     defer parser.deinit();
 
     try doParseDebug(&parser);
-    // Outputs:
-    // RESULT: 1: (funcall person (named-argument quoted-argument (string "value")))
-    // EOF: 37
 }
 
 test "parse email=)" {
@@ -963,9 +951,24 @@ test "parse email=)" {
     defer parser.deinit();
 
     try doParseDebug(&parser);
-    // Outputs:
-    // RESULT: 1: (funcall person (named-argument quoted-argument (string "value")))
-    // EOF: 37
+}
+test "parse email=," {
+    const alloc = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(alloc);
+    defer arena.deinit();
+    const source =
+        \\    person(given = "Alfio", family = "Marazzi", role = "aut", email=,)
+    ;
+    var strings = try StringStorage.init(alloc, std.heap.page_allocator);
+    defer strings.deinit();
+
+    var tokenizer = Tokenizer.init(source, &strings);
+    defer tokenizer.deinit();
+
+    var parser = Parser.init(arena.allocator(), &tokenizer, &strings);
+    defer parser.deinit();
+
+    try doParseDebug(&parser);
 }
 
 test "parse" {
@@ -994,11 +997,6 @@ test "parse" {
     defer parser.deinit();
 
     try doParseDebug(&parser);
-
-    // Outputs:
-    // RESULT: 9: (funcall c (funcall person (string "Caio") (string "Lente") null (string "clente@abj.org.br") (named-argument role (funcall c (string "aut") (string "cre"))) (named-argument comment (funcall c (named-argument ORCID (string "0000-0001-8473-069X"))))) (funcall person (string "Julio") (string "Trecenti") null (string "julio.trecenti@gmail.com") (named-argument role (string "aut")) (named-argument comment (funcall c (named-argument ORCID (string "0000-0002-1680-6389"))))) (funcall person (string "Katerine") (string "Witkoski") null (string "kwitkoski@abj.org.br") (named-argument role (string "ctb")) (named-argument comment (funcall c (named-argument ORCID (string "0000-0002-3691-6569"))))) (funcall person (string "Associação Brasileira de Jurimetria") (named-argument role (funcall c (string "cph") (string "fnd")))))
-    // EOF: 486
-
 }
 
 test "parse 1" {

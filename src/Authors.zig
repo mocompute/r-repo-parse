@@ -718,8 +718,6 @@ test "read authors from PACKAGES-full.gz" {
         var timer = try std.time.Timer.start();
         try authors.read(source_, &strings);
         std.debug.print("Parse authors = {}ms\n", .{@divFloor(timer.lap(), 1_000_000)});
-
-        authors.db.debugPrint();
     }
 }
 
