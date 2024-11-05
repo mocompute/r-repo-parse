@@ -408,10 +408,7 @@ pub const Parser = struct {
                     const res = try self.tokenizer.next();
                     if (res == .err) return tokenizer_err(res.err);
                     switch (res.ok.token) {
-                        .identifier => |s| state = .{ .identifier = .{
-                            .name = s,
-                            .loc = res.ok.loc,
-                        } },
+                        .identifier => |s| state = .{ .identifier = .{ .name = s, .loc = res.ok.loc } },
                         .string => |s| return ok(.{ .string = s }, res.ok.loc),
                         .comma => return err(.comma, res.ok.loc),
                         .close_round => return err(.close_round, res.ok.loc),
@@ -454,13 +451,11 @@ pub const Parser = struct {
                     const res = try self.tokenizer.next();
                     if (res == .err) return tokenizer_err(res.err);
                     switch (res.ok.token) {
-                        .open_round => state = .{
-                            .funcall_start = .{
-                                .name = .{ .name = s.name, .loc = s.loc },
-                                .positional = std.ArrayList(FunctionArg).init(self.alloc),
-                                .named = std.ArrayList(NamedArgument).init(self.alloc),
-                            },
-                        },
+                        .open_round => state = .{ .funcall_start = .{
+                            .name = .{ .name = s.name, .loc = s.loc },
+                            .positional = std.ArrayList(FunctionArg).init(self.alloc),
+                            .named = std.ArrayList(NamedArgument).init(self.alloc),
+                        } },
                         .comma => return ok(.{ .identifier = s.name }, s.loc),
                         .close_round => {
                             self.tokenizer.back(res.ok.loc); // backtrack
@@ -475,18 +470,14 @@ pub const Parser = struct {
                     if (res == .err) return tokenizer_err(res.err);
 
                     switch (res.ok.token) {
-                        .identifier => |s| {
-                            state = .{ .funcall_identifier = .{
-                                .state = st.*,
-                                .identifier = .{ .name = s, .loc = res.ok.loc },
-                            } };
-                        },
-                        .string => |s| {
-                            state = .{ .funcall_string = .{
-                                .state = st.*,
-                                .identifier = .{ .name = s, .loc = res.ok.loc },
-                            } };
-                        },
+                        .identifier => |s| state = .{ .funcall_identifier = .{
+                            .state = st.*,
+                            .identifier = .{ .name = s, .loc = res.ok.loc },
+                        } },
+                        .string => |s| state = .{ .funcall_string = .{
+                            .state = st.*,
+                            .identifier = .{ .name = s, .loc = res.ok.loc },
+                        } },
                         .comma => state = .{ .funcall_comma = st.* },
                         .open_round => state = .{ .funcall_open_round_expect_string = st.* },
                         .close_round => {
@@ -530,15 +521,10 @@ pub const Parser = struct {
                             try fist.state.positional.append(.{ .identifier = fist.identifier.name });
                             state = .{ .funcall_start = fist.state };
                         },
-                        .equal => {
-                            state = .{ .funcall_identifier_equal = .{
-                                .state = fist.state,
-                                .identifier = .{
-                                    .name = fist.identifier.name,
-                                    .loc = fist.identifier.loc,
-                                },
-                            } };
-                        },
+                        .equal => state = .{ .funcall_identifier_equal = .{
+                            .state = fist.state,
+                            .identifier = .{ .name = fist.identifier.name, .loc = fist.identifier.loc },
+                        } },
                         .open_round => {
                             // funcall as positional argument.
                             // backtrack and parse expression
@@ -577,15 +563,10 @@ pub const Parser = struct {
                             self.tokenizer.back(res.ok.loc);
                             state = .{ .funcall_start = fist.state };
                         },
-                        .equal => {
-                            state = .{ .funcall_identifier_equal = .{
-                                .state = fist.state,
-                                .identifier = .{
-                                    .name = fist.identifier.name,
-                                    .loc = fist.identifier.loc,
-                                },
-                            } };
-                        },
+                        .equal => state = .{ .funcall_identifier_equal = .{
+                            .state = fist.state,
+                            .identifier = .{ .name = fist.identifier.name, .loc = fist.identifier.loc },
+                        } },
                         else => {
                             self.tokenizer.back(res.ok.loc);
                             state = .{ .funcall_start = fist.state };
@@ -598,20 +579,14 @@ pub const Parser = struct {
                     switch (res) {
                         .err => |e| {
                             if (e.err == .close_round or e.err == .comma) {
-                                const na: NamedArgument = .{
-                                    .name = fiest.identifier.name,
-                                    .value = .null,
-                                };
+                                const na: NamedArgument = .{ .name = fiest.identifier.name, .value = .null };
                                 try fiest.state.named.append(na);
                                 self.tokenizer.back(e.loc); // backtrack
                                 state = .{ .funcall_start = fiest.state };
                             } else return res;
                         },
                         .ok => {
-                            var na: NamedArgument = .{
-                                .name = fiest.identifier.name,
-                                .value = .null,
-                            };
+                            var na: NamedArgument = .{ .name = fiest.identifier.name, .value = .null };
                             na.value = FunctionArg.fromNode(res.ok.node);
                             try fiest.state.named.append(na);
                             state = .{ .funcall_start = fiest.state };
@@ -622,13 +597,11 @@ pub const Parser = struct {
                     const res = try self.tokenizer.next();
                     if (res == .err) return tokenizer_err(res.err);
                     switch (res.ok.token) {
-                        .string => |s| {
-                            state = .{ .funcall_open_round_string = .{
-                                .state = st,
-                                .string = s,
-                                .loc = res.ok.loc,
-                            } };
-                        },
+                        .string => |s| state = .{ .funcall_open_round_string = .{
+                            .state = st,
+                            .string = s,
+                            .loc = res.ok.loc,
+                        } },
                         else => return err(.expected_string, res.ok.loc),
                     }
                 },
