@@ -513,22 +513,22 @@ pub const Parser = struct {
                         },
                     }
                 },
-                .funcall_identifier => |*fist| {
+                .funcall_identifier => |*st| {
                     const res = try self.tokenizer.next();
                     if (res == .err) return tokenizer_err(res.err);
                     switch (res.ok.token) {
                         .comma => {
-                            try fist.state.positional.append(.{ .identifier = fist.identifier.name });
-                            state = .{ .funcall_start = fist.state };
+                            try st.state.positional.append(.{ .identifier = st.identifier.name });
+                            state = .{ .funcall_start = st.state };
                         },
                         .equal => state = .{ .funcall_identifier_equal = .{
-                            .state = fist.state,
-                            .identifier = .{ .name = fist.identifier.name, .loc = fist.identifier.loc },
+                            .state = st.state,
+                            .identifier = .{ .name = st.identifier.name, .loc = st.identifier.loc },
                         } },
                         .open_round => {
                             // funcall as positional argument.
                             // backtrack and parse expression
-                            self.tokenizer.back(fist.identifier.loc);
+                            self.tokenizer.back(st.identifier.loc);
 
                             const inner = try self.next();
                             if (inner == .err) return inner;
@@ -539,57 +539,58 @@ pub const Parser = struct {
                                 else => return err(.expected_funcall, res.ok.loc),
                             };
 
-                            try fist.state.positional.append(.{ .function_call = fc });
-                            state = .{ .funcall_start = fist.state };
+                            try st.state.positional.append(.{ .function_call = fc });
+                            state = .{ .funcall_start = st.state };
                         },
                         else => {
                             self.tokenizer.back(res.ok.loc);
-                            state = .{ .funcall_start = fist.state };
+                            state = .{ .funcall_start = st.state };
                         },
                     }
                 },
-                .funcall_string => |*fist| {
+                .funcall_string => |*st| {
                     // deal with quoted named arguments
                     const res = try self.tokenizer.next();
                     if (res == .err) return tokenizer_err(res.err);
 
                     switch (res.ok.token) {
                         .comma => {
-                            try fist.state.positional.append(.{ .string = fist.identifier.name });
-                            state = .{ .funcall_start = fist.state };
+                            try st.state.positional.append(.{ .string = st.identifier.name });
+                            state = .{ .funcall_start = st.state };
                         },
                         .close_round => {
-                            try fist.state.positional.append(.{ .string = fist.identifier.name });
+                            try st.state.positional.append(.{ .string = st.identifier.name });
                             self.tokenizer.back(res.ok.loc);
-                            state = .{ .funcall_start = fist.state };
+                            state = .{ .funcall_start = st.state };
                         },
                         .equal => state = .{ .funcall_identifier_equal = .{
-                            .state = fist.state,
-                            .identifier = .{ .name = fist.identifier.name, .loc = fist.identifier.loc },
+                            .state = st.state,
+                            .identifier = .{ .name = st.identifier.name, .loc = st.identifier.loc },
                         } },
                         else => {
-                            self.tokenizer.back(res.ok.loc);
-                            state = .{ .funcall_start = fist.state };
+                            self.tokenizer.back(res.ok.loc); // back
+                            state = .{ .funcall_start = st.state };
                         },
                     }
                 },
-                .funcall_identifier_equal => |*fiest| {
+                .funcall_identifier_equal => |*st| {
                     // parse next expression
                     const res = try self.next();
                     switch (res) {
-                        .err => |e| {
-                            if (e.err == .close_round or e.err == .comma) {
-                                const na: NamedArgument = .{ .name = fiest.identifier.name, .value = .null };
-                                try fiest.state.named.append(na);
+                        .err => |e| switch (e.err) {
+                            .close_round, .comma => {
+                                const na: NamedArgument = .{ .name = st.identifier.name, .value = .null };
+                                try st.state.named.append(na);
                                 self.tokenizer.back(e.loc); // backtrack
-                                state = .{ .funcall_start = fiest.state };
-                            } else return res;
+                                state = .{ .funcall_start = st.state };
+                            },
+                            else => return res,
                         },
                         .ok => {
-                            var na: NamedArgument = .{ .name = fiest.identifier.name, .value = .null };
+                            var na: NamedArgument = .{ .name = st.identifier.name, .value = .null };
                             na.value = FunctionArg.fromNode(res.ok.node);
-                            try fiest.state.named.append(na);
-                            state = .{ .funcall_start = fiest.state };
+                            try st.state.named.append(na);
+                            state = .{ .funcall_start = st.state };
                         },
                     }
                 },
@@ -605,13 +606,13 @@ pub const Parser = struct {
                         else => return err(.expected_string, res.ok.loc),
                     }
                 },
-                .funcall_open_round_string => |*ors| {
+                .funcall_open_round_string => |*st| {
                     const res = try self.tokenizer.next();
                     if (res == .err) return tokenizer_err(res.err);
                     switch (res.ok.token) {
                         .close_round => {
-                            try ors.state.positional.append(.{ .string = ors.string });
-                            state = .{ .funcall_start = ors.state };
+                            try st.state.positional.append(.{ .string = st.string });
+                            state = .{ .funcall_start = st.state };
                         },
                         else => return err(.expected_close_round, res.ok.loc),
                     }
