@@ -579,17 +579,14 @@ pub const Parser = struct {
                     switch (res) {
                         .err => |e| switch (e.err) {
                             .close_round, .comma => {
-                                const na: NamedArgument = .{ .name = st.identifier.name, .value = .null };
-                                try st.state.named.append(na);
+                                try append_named(&st.state.named, st.identifier.name, .null);
                                 self.tokenizer.back(e.loc); // backtrack
                                 state = .{ .funcall_start = st.state };
                             },
                             else => return res,
                         },
                         .ok => {
-                            var na: NamedArgument = .{ .name = st.identifier.name, .value = .null };
-                            na.value = FunctionArg.fromNode(res.ok.node);
-                            try st.state.named.append(na);
+                            try append_named(&st.state.named, st.identifier.name, FunctionArg.fromNode(res.ok.node));
                             state = .{ .funcall_start = st.state };
                         },
                     }
@@ -619,6 +616,10 @@ pub const Parser = struct {
                 },
             }
         }
+    }
+
+    fn append_named(named: *std.ArrayList(NamedArgument), name: []const u8, value: FunctionArg) !void {
+        try named.append(.{ .name = name, .value = value });
     }
 
     fn ok(node: FunctionArg, loc: usize) Result {
