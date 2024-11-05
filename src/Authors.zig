@@ -57,7 +57,13 @@ const AuthorsDB = struct {
         self.package_names.deinit();
         self.* = undefined;
     }
-    pub fn debugPrint(self: AuthorsDB) void {
+    pub fn debugPrintInfo(self: *const AuthorsDB) void {
+        std.debug.print("Packages with Authors@R: {}\n", .{self.package_names.data.items.len});
+        std.debug.print("Persons: {}\n", .{self.person_ids._next});
+        std.debug.print("String attributes: {}\n", .{self.person_strings.data.data.items.len});
+        std.debug.print("Role attributes: {}\n", .{self.person_roles.data.data.items.len});
+    }
+    pub fn debugPrint(self: *const AuthorsDB) void {
         std.debug.print("\nAttributes:\n", .{});
         for (self.attribute_names.data.items, 0..) |x, id| {
             std.debug.print("  {}: {s}\n", .{ id, x });
@@ -435,18 +441,14 @@ fn Storage(comptime T: type, comptime IdType: type) type {
             return error.OutOfRange;
         }
         pub fn lookup(self: @This(), value: T) ?IdType {
-            var index: IdType = 0;
-            for (self.data.items) |x| {
-                if (std.meta.eql(x, value)) return index;
-                index += 1;
+            for (self.data.items, 0..) |x, index| {
+                if (std.meta.eql(x, value)) return @intCast(index);
             }
             return null;
         }
-        pub fn lookupString(self: @This(), value: T) ?IdType {
-            var index: IdType = 0;
-            for (self.data.items) |x| {
-                if (std.mem.eql(u8, x, value)) return index;
-                index += 1;
+        pub fn lookupString(self: @This(), value: []const u8) ?IdType {
+            for (self.data.items, 0..) |x, index| {
+                if (std.mem.eql(u8, x, value)) return @intCast(index);
             }
             return null;
         }
@@ -718,6 +720,8 @@ test "read authors from PACKAGES-full.gz" {
         var timer = try std.time.Timer.start();
         try authors.read(source_, &strings);
         std.debug.print("Parse authors = {}ms\n", .{@divFloor(timer.lap(), 1_000_000)});
+
+        authors.db.debugPrintInfo();
     }
 }
 
