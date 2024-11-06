@@ -381,7 +381,7 @@ pub const Parser = struct {
 
     pub fn next(self: *Parser) error{ OutOfMemory, TokenizeError, ParseError }!Result {
         const FuncallState = struct {
-            name: struct { name: []const u8, loc: usize },
+            name: StringLoc,
             positional: std.ArrayList(FunctionArg),
             named: std.ArrayList(NamedArgument),
         };
@@ -457,7 +457,7 @@ pub const Parser = struct {
                 if (res == .err) return tokenizer_err(res.err);
                 switch (res.ok.token) {
                     .open_round => state = .{ .funcall_start = .{
-                        .name = .{ .name = s.string, .loc = s.loc },
+                        .name = s,
                         .positional = std.ArrayList(FunctionArg).init(self.alloc),
                         .named = std.ArrayList(NamedArgument).init(self.alloc),
                     } },
@@ -488,7 +488,7 @@ pub const Parser = struct {
                     .close_round => {
                         // end of funcall
                         return ok_function_call(.{
-                            .name = st.name.name,
+                            .name = st.name.string,
                             .positional = try st.positional.toOwnedSlice(),
                             .named = try st.named.toOwnedSlice(),
                         }, st.name.loc);
@@ -536,7 +536,7 @@ pub const Parser = struct {
                         self.tokenizer.back(st.identifier.loc);
 
                         const inner = try self.next();
-                        if (inner == .err) return inner;
+                        if (inner == .err) return inner; // could be , or )
 
                         const fc: FunctionCall =
                             switch (inner.ok.node) {
