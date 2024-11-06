@@ -78,6 +78,10 @@ pub const Tokenizer = struct {
         err: Err,
         loc: usize,
     };
+    pub const StringLoc = struct {
+        string: []const u8,
+        loc: usize,
+    };
     pub const Err = enum {
         empty,
         unterminated_string,
@@ -353,6 +357,10 @@ pub const Parser = struct {
         err: Err,
         loc: usize,
     };
+    pub const StringLoc = struct {
+        string: []const u8,
+        loc: usize,
+    };
     pub const Err = union(enum) {
         eof,
 
@@ -377,38 +385,36 @@ pub const Parser = struct {
             positional: std.ArrayList(FunctionArg),
             named: std.ArrayList(NamedArgument),
         };
+        const FuncallStateStringLoc = struct {
+            state: FuncallState,
+            identifier: StringLoc,
+        };
         const State = union(enum) {
             start,
             open_round,
-            open_round_string: struct { string: []const u8, loc: usize },
-            open_round_identifier: struct { string: []const u8, loc: usize },
-            identifier: struct { name: []const u8, loc: usize },
+            open_round_string: StringLoc,
+            open_round_identifier: StringLoc,
+            identifier: StringLoc,
             funcall_start: FuncallState,
             funcall_comma: FuncallState,
             funcall_identifier: struct {
                 state: FuncallState,
-                identifier: struct { name: []const u8, loc: usize },
+                identifier: StringLoc,
             },
-            funcall_string: struct {
-                state: FuncallState,
-                identifier: struct { name: []const u8, loc: usize },
-            },
-            funcall_identifier_equal: struct {
-                state: FuncallState,
-                identifier: struct { name: []const u8, loc: usize },
-            },
+            funcall_string: FuncallStateStringLoc,
+            funcall_identifier_equal: FuncallStateStringLoc,
             funcall_open_round_expect_string: FuncallState,
-            funcall_open_round_string: struct { state: FuncallState, string: []const u8, loc: usize },
+            funcall_open_round_string: struct { state: FuncallState, string_loc: StringLoc },
         };
         var state: State = .start;
 
-        while (true) {
+        while (true)
             switch (state) {
                 .start => {
                     const res = try self.tokenizer.next();
                     if (res == .err) return tokenizer_err(res.err);
                     switch (res.ok.token) {
-                        .identifier => |s| state = .{ .identifier = .{ .name = s, .loc = res.ok.loc } },
+                        .identifier => |s| state = .{ .identifier = .{ .string = s, .loc = res.ok.loc } },
                         .string => |s| return ok(.{ .string = s }, res.ok.loc),
                         .comma => return err(.comma, res.ok.loc),
                         .close_round => return err(.close_round, res.ok.loc),
@@ -452,16 +458,16 @@ pub const Parser = struct {
                     if (res == .err) return tokenizer_err(res.err);
                     switch (res.ok.token) {
                         .open_round => state = .{ .funcall_start = .{
-                            .name = .{ .name = s.name, .loc = s.loc },
+                            .name = .{ .name = s.string, .loc = s.loc },
                             .positional = std.ArrayList(FunctionArg).init(self.alloc),
                             .named = std.ArrayList(NamedArgument).init(self.alloc),
                         } },
-                        .comma => return ok(.{ .identifier = s.name }, s.loc),
+                        .comma => return ok(.{ .identifier = s.string }, s.loc),
                         .close_round => {
                             self.tokenizer.back(res.ok.loc); // backtrack
-                            return ok(.{ .identifier = s.name }, s.loc);
+                            return ok(.{ .identifier = s.string }, s.loc);
                         },
-                        .eof => return ok(.{ .identifier = s.name }, res.ok.loc),
+                        .eof => return ok(.{ .identifier = s.string }, res.ok.loc),
                         else => |tok| return err(.{ .unexpected_token = tok }, res.ok.loc),
                     }
                 },
@@ -472,11 +478,11 @@ pub const Parser = struct {
                     switch (res.ok.token) {
                         .identifier => |s| state = .{ .funcall_identifier = .{
                             .state = st.*,
-                            .identifier = .{ .name = s, .loc = res.ok.loc },
+                            .identifier = .{ .string = s, .loc = res.ok.loc },
                         } },
                         .string => |s| state = .{ .funcall_string = .{
                             .state = st.*,
-                            .identifier = .{ .name = s, .loc = res.ok.loc },
+                            .identifier = .{ .string = s, .loc = res.ok.loc },
                         } },
                         .comma => state = .{ .funcall_comma = st.* },
                         .open_round => state = .{ .funcall_open_round_expect_string = st.* },
@@ -518,12 +524,12 @@ pub const Parser = struct {
                     if (res == .err) return tokenizer_err(res.err);
                     switch (res.ok.token) {
                         .comma => {
-                            try st.state.positional.append(.{ .identifier = st.identifier.name });
+                            try st.state.positional.append(.{ .identifier = st.identifier.string });
                             state = .{ .funcall_start = st.state };
                         },
                         .equal => state = .{ .funcall_identifier_equal = .{
                             .state = st.state,
-                            .identifier = .{ .name = st.identifier.name, .loc = st.identifier.loc },
+                            .identifier = st.identifier,
                         } },
                         .open_round => {
                             // funcall as positional argument.
@@ -555,17 +561,17 @@ pub const Parser = struct {
 
                     switch (res.ok.token) {
                         .comma => {
-                            try st.state.positional.append(.{ .string = st.identifier.name });
+                            try st.state.positional.append(.{ .string = st.identifier.string });
                             state = .{ .funcall_start = st.state };
                         },
                         .close_round => {
-                            try st.state.positional.append(.{ .string = st.identifier.name });
+                            try st.state.positional.append(.{ .string = st.identifier.string });
                             self.tokenizer.back(res.ok.loc);
                             state = .{ .funcall_start = st.state };
                         },
                         .equal => state = .{ .funcall_identifier_equal = .{
                             .state = st.state,
-                            .identifier = .{ .name = st.identifier.name, .loc = st.identifier.loc },
+                            .identifier = st.identifier,
                         } },
                         else => {
                             self.tokenizer.back(res.ok.loc); // back
@@ -579,14 +585,14 @@ pub const Parser = struct {
                     switch (res) {
                         .err => |e| switch (e.err) {
                             .close_round, .comma => {
-                                try append_named(&st.state.named, st.identifier.name, .null);
+                                try append_named(&st.state.named, st.identifier.string, .null);
                                 self.tokenizer.back(e.loc); // backtrack
                                 state = .{ .funcall_start = st.state };
                             },
                             else => return res,
                         },
                         .ok => {
-                            try append_named(&st.state.named, st.identifier.name, FunctionArg.fromNode(res.ok.node));
+                            try append_named(&st.state.named, st.identifier.string, FunctionArg.fromNode(res.ok.node));
                             state = .{ .funcall_start = st.state };
                         },
                     }
@@ -597,8 +603,7 @@ pub const Parser = struct {
                     switch (res.ok.token) {
                         .string => |s| state = .{ .funcall_open_round_string = .{
                             .state = st,
-                            .string = s,
-                            .loc = res.ok.loc,
+                            .string_loc = .{ .string = s, .loc = res.ok.loc },
                         } },
                         else => return err(.expected_string, res.ok.loc),
                     }
@@ -608,14 +613,13 @@ pub const Parser = struct {
                     if (res == .err) return tokenizer_err(res.err);
                     switch (res.ok.token) {
                         .close_round => {
-                            try st.state.positional.append(.{ .string = st.string });
+                            try st.state.positional.append(.{ .string = st.string_loc.string });
                             state = .{ .funcall_start = st.state };
                         },
                         else => return err(.expected_close_round, res.ok.loc),
                     }
                 },
-            }
-        }
+            };
     }
 
     fn append_named(named: *std.ArrayList(NamedArgument), name: []const u8, value: FunctionArg) !void {
