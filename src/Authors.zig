@@ -18,6 +18,20 @@
 alloc: Allocator,
 db: AuthorsDB,
 
+pub const LogType = enum { info, warn, err };
+pub const LogTag = union(LogType) {
+    info: enum {},
+    warn: enum {},
+    err: enum {},
+};
+pub const LogItem = struct {
+    message: []const u8,
+    loc: usize,
+    tag: LogTag,
+};
+
+const LogItems = std.ArrayList(LogItem);
+
 pub fn init(alloc: Allocator) Authors {
     return .{
         .alloc = alloc,
@@ -111,9 +125,10 @@ const AuthorsDB = struct {
     }
 
     /// Leaky, prefer to use an ArenaAllocator.
-    pub fn addFromFunctionCall(self: *AuthorsDB, fc: FunctionCall, package_name: []const u8) !void {
+    pub fn addFromFunctionCall(self: *AuthorsDB, fc: FunctionCall, package_name: []const u8, log: *LogItems) !void {
         assert(std.mem.eql(u8, "person", fc.name));
         const eql = std.ascii.eqlIgnoreCase;
+        _ = log; // TODO not implemented
 
         const package_id = self.package_names.lookupString(package_name) orelse b: {
             const id = self.package_names.nextId();
@@ -505,17 +520,17 @@ const Role = enum {
     }
 };
 
-const Comment = union(enum) {
-    string: []const u8,
-    map: std.StringArrayHashMap([]const u8),
-};
-
-pub fn read(self: *Authors, source: []const u8, strings: *StringStorage) !void {
+/// Caller owns returned slice, which is allocated with Author's allocator.
+pub fn read(self: *Authors, source: []const u8, strings: *StringStorage) ![]LogItem {
     const eql = std.ascii.eqlIgnoreCase;
+
+    var log = LogItems.init(self.alloc);
+    defer log.deinit();
 
     // arena for the RParser
     var arena = std.heap.ArenaAllocator.init(self.alloc);
     defer arena.deinit();
+    const alloc = arena.allocator();
 
     // parse DCF
     var parser = Parser.init(arena.allocator(), strings);
@@ -528,34 +543,15 @@ pub fn read(self: *Authors, source: []const u8, strings: *StringStorage) !void {
     var index: usize = 0;
     var package_name: ?[]const u8 = null;
     var prev_package_name: ?[]const u8 = null;
+    var authors_source: ?[]const u8 = null;
     top: while (true) : (index += 1) switch (nodes[index]) {
         .eof => break,
         .stanza_end => {
-            prev_package_name = package_name;
-            package_name = null;
-        },
-        .field => |field| {
-            if (std.ascii.eqlIgnoreCase("package", field.name)) {
-                package_name = try parsePackageName(nodes, &index, strings);
-            } else if (std.ascii.eqlIgnoreCase("authors@r", field.name)) {
-                if (package_name == null) {
-                    std.debug.print("warning, skipping package after '{?s}' due to authors@r field preceeding package field.\n", .{prev_package_name});
-                    continue;
-                }
-
-                assert(package_name != null);
-
-                const field_source = b: {
-                    index += 1;
-                    switch (nodes[index]) {
-                        .string_node => |s| break :b s,
-                        else => unreachable,
-                    }
-                };
-
-                var rtokenizer = RTokenizer.init(field_source.value, strings);
+            // parse authors field if any
+            if (authors_source) |auth_source| {
+                var rtokenizer = RTokenizer.init(auth_source, strings);
                 defer rtokenizer.deinit();
-                var rparser = RParser.init(arena.allocator(), &rtokenizer, strings);
+                var rparser = RParser.init(alloc, &rtokenizer, strings);
                 defer rparser.deinit();
 
                 switch (try rparser.next()) {
@@ -566,28 +562,25 @@ pub fn read(self: *Authors, source: []const u8, strings: *StringStorage) !void {
 
                                 // outer function can be c() or person()
                                 if (std.mem.eql(u8, "c", fc.name)) {
-                                    for (fc.positional) |fa| {
-                                        switch (fa) {
-                                            .function_call => |c_fc| {
-                                                if (eql("person", c_fc.name)) {
-                                                    try self.db.addFromFunctionCall(c_fc, package_name.?);
-                                                } else unreachable;
-                                            },
-                                            else => unreachable,
-                                        }
-                                    }
+                                    for (fc.positional) |fa| switch (fa) {
+                                        .function_call => |c_fc| {
+                                            if (eql("person", c_fc.name)) {
+                                                try self.db.addFromFunctionCall(c_fc, package_name.?, &log);
+                                            } else unreachable;
+                                        },
+                                        else => unreachable,
+                                    };
                                 } else if (eql("person", fc.name)) {
-                                    try self.db.addFromFunctionCall(fc, package_name.?);
+                                    try self.db.addFromFunctionCall(fc, package_name.?, &log);
                                 } else unreachable;
                             },
                             .function_arg => {
                                 std.debug.print("warning in package {s}: expected function call.\n", .{package_name.?});
                                 // skip stanza and continue
-                                while (true)
-                                    switch (nodes[index]) {
-                                        .stanza_end, .eof => continue :top,
-                                        else => index += 1,
-                                    };
+                                while (true) switch (nodes[index]) {
+                                    .stanza_end, .eof => continue :top,
+                                    else => index += 1,
+                                };
                                 // return error.RParseExpectedFunctionCall;
                             },
                         }
@@ -598,9 +591,27 @@ pub fn read(self: *Authors, source: []const u8, strings: *StringStorage) !void {
                     },
                 }
             }
+
+            // reset package name and authors_source
+            prev_package_name = package_name;
+            package_name = null;
+            authors_source = null;
+        },
+        .field => |field| {
+            if (std.ascii.eqlIgnoreCase("package", field.name)) {
+                package_name = try parsePackageName(nodes, &index, strings);
+            } else if (std.ascii.eqlIgnoreCase("authors@r", field.name)) {
+                // save authors@r field data to process at end of stanza.
+                index += 1;
+                switch (nodes[index]) {
+                    .string_node => |s| authors_source = s.value,
+                    else => unreachable,
+                }
+            }
         },
         else => continue,
     };
+    return try log.toOwnedSlice();
 }
 
 fn parsePackageName(nodes: []Parser.Node, idx: *usize, strings: *StringStorage) ![]const u8 {
@@ -689,37 +700,41 @@ test "Authors" {
     var authors = Authors.init(alloc);
     defer authors.deinit();
 
-    try authors.read(source, &strings);
+    const log = try authors.read(source, &strings);
+    _ = log; // TODO not implemented
 
     authors.db.debugPrint();
 }
 
 test "read authors from PACKAGES-full.gz" {
-    const mos = @import("mos");
+    if (true) {
+        const mos = @import("mos");
 
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const alloc = arena.allocator();
+        var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+        defer arena.deinit();
+        const alloc = arena.allocator();
 
-    const path = "PACKAGES-full.gz";
-    std.fs.cwd().access(path, .{}) catch return;
+        const path = "PACKAGES-full.gz";
+        std.fs.cwd().access(path, .{}) catch return;
 
-    const source: ?[]const u8 = try mos.file.readFileMaybeGzip(alloc, path);
-    try std.testing.expect(source != null);
-    defer if (source) |s| alloc.free(s);
+        const source: ?[]const u8 = try mos.file.readFileMaybeGzip(alloc, path);
+        try std.testing.expect(source != null);
+        defer if (source) |s| alloc.free(s);
 
-    if (source) |source_| {
-        var strings = try StringStorage.init(alloc, std.heap.page_allocator);
-        defer strings.deinit();
+        if (source) |source_| {
+            var strings = try StringStorage.init(alloc, std.heap.page_allocator);
+            defer strings.deinit();
 
-        var authors = Authors.init(alloc);
-        defer authors.deinit();
+            var authors = Authors.init(alloc);
+            defer authors.deinit();
 
-        var timer = try std.time.Timer.start();
-        try authors.read(source_, &strings);
-        std.debug.print("Parse authors = {}ms\n", .{@divFloor(timer.lap(), 1_000_000)});
+            var timer = try std.time.Timer.start();
+            const log = try authors.read(source_, &strings);
+            _ = log; // TODO not implemented
+            std.debug.print("Parse authors = {}ms\n", .{@divFloor(timer.lap(), 1_000_000)});
 
-        authors.db.debugPrintInfo();
+            authors.db.debugPrintInfo();
+        }
     }
 }
 
