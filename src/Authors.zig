@@ -555,35 +555,33 @@ pub fn read(self: *Authors, source: []const u8, strings: *StringStorage) ![]LogI
                 defer rparser.deinit();
 
                 switch (try rparser.next()) {
-                    .ok => |ok| {
-                        switch (ok.node) {
-                            .function_call => |fc| {
-                                // std.debug.print("Parsed: {}\n", .{fc});
+                    .ok => |ok| switch (ok.node) {
+                        .function_call => |fc| {
+                            // std.debug.print("Parsed: {}\n", .{fc});
 
-                                // outer function can be c() or person()
-                                if (std.mem.eql(u8, "c", fc.name)) {
-                                    for (fc.positional) |fa| switch (fa) {
-                                        .function_call => |c_fc| {
-                                            if (eql("person", c_fc.name)) {
-                                                try self.db.addFromFunctionCall(c_fc, package_name.?, &log);
-                                            } else unreachable;
-                                        },
-                                        else => unreachable,
-                                    };
-                                } else if (eql("person", fc.name)) {
-                                    try self.db.addFromFunctionCall(fc, package_name.?, &log);
-                                } else unreachable;
-                            },
-                            .function_arg => {
-                                std.debug.print("warning in package {s}: expected function call.\n", .{package_name.?});
-                                // skip stanza and continue
-                                while (true) switch (nodes[index]) {
-                                    .stanza_end, .eof => continue :top,
-                                    else => index += 1,
+                            // outer function can be c() or person()
+                            if (std.mem.eql(u8, "c", fc.name)) {
+                                for (fc.positional) |fa| switch (fa) {
+                                    .function_call => |c_fc| {
+                                        if (eql("person", c_fc.name)) {
+                                            try self.db.addFromFunctionCall(c_fc, package_name.?, &log);
+                                        } else unreachable;
+                                    },
+                                    else => unreachable,
                                 };
-                                // return error.RParseExpectedFunctionCall;
-                            },
-                        }
+                            } else if (eql("person", fc.name)) {
+                                try self.db.addFromFunctionCall(fc, package_name.?, &log);
+                            } else unreachable;
+                        },
+                        .function_arg => {
+                            std.debug.print("warning in package {s}: expected function call.\n", .{package_name.?});
+                            // skip stanza and continue
+                            while (true) switch (nodes[index]) {
+                                .stanza_end, .eof => continue :top,
+                                else => index += 1,
+                            };
+                            // return error.RParseExpectedFunctionCall;
+                        },
                     },
                     .err => |e| {
                         std.debug.print("ERROR parsing package {s}: {}\n", .{ package_name.?, e });
