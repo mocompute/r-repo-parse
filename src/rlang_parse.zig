@@ -86,6 +86,16 @@ pub const Tokenizer = struct {
         empty,
         unterminated_string,
         bad_token,
+
+        pub fn format(self: Err, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+            _ = fmt;
+            _ = options;
+            try switch (self) {
+                .empty => writer.print("empty", .{}),
+                .unterminated_string => writer.print("unterminated string", .{}),
+                .bad_token => writer.print("bad token", .{}),
+            };
+        }
     };
 
     pub fn next(self: *Tokenizer) error{OutOfMemory}!Result {

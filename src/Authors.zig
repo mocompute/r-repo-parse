@@ -20,14 +20,46 @@ db: AuthorsDB,
 
 pub const LogType = enum { info, warn, err };
 pub const LogTag = union(LogType) {
-    info: enum {},
-    warn: enum {},
-    err: enum {},
+    info: enum {
+        no_authors_at_r,
+    },
+    warn: enum {
+        no_package,
+        no_function,
+        no_person,
+    },
+    err: enum {
+        authors_at_r_wrong_type,
+        rlang_parse_error,
+    },
 };
 pub const LogItem = struct {
-    message: []const u8,
-    loc: usize,
+    message: []const u8 = "",
+    loc: usize = 0,
+    extra: union(enum) {
+        none: void,
+        rlang_parse_err: RParser.ErrLoc,
+    } = .none,
     tag: LogTag,
+
+    pub fn format(self: LogItem, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+        _ = fmt;
+        _ = options;
+        try switch (self.tag) {
+            .info => |x| switch (x) {
+                .no_authors_at_r => writer.print("info: no Authors@R field in package '{s}'", .{self.message}),
+            },
+            .warn => |x| switch (x) {
+                .no_package => writer.print("warn: no package found in stanza", .{}),
+                .no_function => writer.print("warn: expected c() or person() function call in Authors@R field in package '{s}'", .{self.message}),
+                .no_person => writer.print("warn: expected person() in Authors@R field in package '{s}'", .{self.message}),
+            },
+            .err => |x| switch (x) {
+                .authors_at_r_wrong_type => writer.print("error: Authors@R parsed to wrong type in package '{s}'", .{self.message}),
+                .rlang_parse_error => writer.print("error: R lang parser error: {} in package '{s}' at location {}", .{ self.extra.rlang_parse_err.err, self.message, self.extra.rlang_parse_err.loc }),
+            },
+        };
+    }
 };
 
 const LogItems = std.ArrayList(LogItem);
@@ -557,37 +589,47 @@ pub fn read(self: *Authors, source: []const u8, strings: *StringStorage) ![]LogI
                 switch (try rparser.next()) {
                     .ok => |ok| switch (ok.node) {
                         .function_call => |fc| {
-                            // std.debug.print("Parsed: {}\n", .{fc});
-
                             // outer function can be c() or person()
                             if (std.mem.eql(u8, "c", fc.name)) {
                                 for (fc.positional) |fa| switch (fa) {
                                     .function_call => |c_fc| {
                                         if (eql("person", c_fc.name)) {
                                             try self.db.addFromFunctionCall(c_fc, package_name.?, &log);
-                                        } else unreachable;
+                                        } else {
+                                            try logNoPerson(&log, package_name.?);
+                                            continue :top;
+                                        }
                                     },
-                                    else => unreachable,
+                                    else => {
+                                        try logNoFunction(&log, package_name.?);
+                                        continue :top;
+                                    },
                                 };
                             } else if (eql("person", fc.name)) {
                                 try self.db.addFromFunctionCall(fc, package_name.?, &log);
-                            } else unreachable;
+                            } else {
+                                try logNoFunction(&log, package_name.?);
+                                continue :top;
+                            }
                         },
                         .function_arg => {
-                            std.debug.print("warning in package {s}: expected function call.\n", .{package_name.?});
+                            try logNoFunction(&log, package_name.?);
                             // skip stanza and continue
                             while (true) switch (nodes[index]) {
                                 .stanza_end, .eof => continue :top,
                                 else => index += 1,
                             };
-                            // return error.RParseExpectedFunctionCall;
                         },
                     },
                     .err => |e| {
-                        std.debug.print("ERROR parsing package {s}: {}\n", .{ package_name.?, e });
+                        try logParseError(&log, e, package_name);
                         return error.RParseError;
                     },
                 }
+            } else if (package_name) |pname| {
+                try logNoAuthorsAtR(&log, pname);
+            } else {
+                try logNoPackage(&log);
             }
 
             // reset package name and authors_source
@@ -603,13 +645,43 @@ pub fn read(self: *Authors, source: []const u8, strings: *StringStorage) ![]LogI
                 index += 1;
                 switch (nodes[index]) {
                     .string_node => |s| authors_source = s.value,
-                    else => unreachable,
+                    else => {
+                        try logAuthorsAtRWrongType(&log, package_name);
+                        continue;
+                    },
                 }
             }
         },
         else => continue,
     };
     return try log.toOwnedSlice();
+}
+
+fn logParseError(log: *LogItems, e: RParser.ErrLoc, package_name: ?[]const u8) !void {
+    if (package_name) |pname| {
+        try log.append(.{ .tag = .{ .err = .rlang_parse_error }, .message = pname, .loc = 0, .extra = .{ .rlang_parse_err = e } });
+    } else {
+        try log.append(.{ .tag = .{ .err = .rlang_parse_error }, .message = "<unknown>", .loc = 0, .extra = .{ .rlang_parse_err = e } });
+    }
+}
+fn logNoAuthorsAtR(log: *LogItems, package_name: []const u8) !void {
+    try log.append(.{ .tag = .{ .info = .no_authors_at_r }, .message = package_name, .loc = 0 });
+}
+fn logNoFunction(log: *LogItems, package_name: []const u8) !void {
+    try log.append(.{ .tag = .{ .warn = .no_function }, .message = package_name, .loc = 0 });
+}
+fn logNoPerson(log: *LogItems, package_name: []const u8) !void {
+    try log.append(.{ .tag = .{ .warn = .no_person }, .message = package_name, .loc = 0 });
+}
+fn logNoPackage(log: *LogItems) !void {
+    try log.append(.{ .tag = .{ .warn = .no_package }, .message = "", .loc = 0 });
+}
+fn logAuthorsAtRWrongType(log: *LogItems, package_name: ?[]const u8) !void {
+    if (package_name) |pname| {
+        try log.append(.{ .tag = .{ .err = .authors_at_r_wrong_type }, .message = pname, .loc = 0 });
+    } else {
+        try log.append(.{ .tag = .{ .err = .authors_at_r_wrong_type }, .message = "<unknown>", .loc = 0 });
+    }
 }
 
 fn parsePackageName(nodes: []Parser.Node, idx: *usize, strings: *StringStorage) ![]const u8 {
@@ -728,10 +800,14 @@ test "read authors from PACKAGES-full.gz" {
 
             var timer = try std.time.Timer.start();
             const log = try authors.read(source_, &strings);
-            _ = log; // TODO not implemented
             std.debug.print("Parse authors = {}ms\n", .{@divFloor(timer.lap(), 1_000_000)});
 
             authors.db.debugPrintInfo();
+
+            for (log) |x| switch (x.tag) {
+                .warn, .err => std.debug.print("{}\n", .{x}),
+                .info => {},
+            };
         }
     }
 }
