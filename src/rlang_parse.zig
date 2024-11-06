@@ -408,218 +408,217 @@ pub const Parser = struct {
         };
         var state: State = .start;
 
-        while (true)
-            switch (state) {
-                .start => {
-                    const res = try self.tokenizer.next();
-                    if (res == .err) return tokenizer_err(res.err);
-                    switch (res.ok.token) {
-                        .identifier => |s| state = .{ .identifier = .{ .string = s, .loc = res.ok.loc } },
-                        .string => |s| return ok(.{ .string = s }, res.ok.loc),
-                        .comma => return err(.comma, res.ok.loc),
-                        .close_round => return err(.close_round, res.ok.loc),
-                        .eof => return err(.eof, res.ok.loc),
-                        .open_round => state = .open_round,
-                        .equal => return err(.expected_identifier, res.ok.loc),
-                    }
-                },
-                .open_round => {
-                    const res = try self.tokenizer.next();
-                    if (res == .err) return tokenizer_err(res.err);
-                    switch (res.ok.token) {
-                        .string => |s| state = .{ .open_round_string = .{ .string = s, .loc = res.ok.loc } },
-                        .identifier => |s| state = .{ .open_round_identifier = .{ .string = s, .loc = res.ok.loc } },
-                        else => return err(.expected_string, res.ok.loc),
-                    }
-                },
-                .open_round_string => |s| {
-                    const res = try self.tokenizer.next();
-                    if (res == .err) return tokenizer_err(res.err);
-                    switch (res.ok.token) {
-                        .close_round => return ok(.{ .string = s.string }, s.loc),
-                        else => return err(.expected_close_round, res.ok.loc),
-                    }
-                },
-                .open_round_identifier => |_| {
-                    const res = try self.tokenizer.next();
-                    if (res == .err) return tokenizer_err(res.err);
+        while (true) switch (state) {
+            .start => {
+                const res = try self.tokenizer.next();
+                if (res == .err) return tokenizer_err(res.err);
+                switch (res.ok.token) {
+                    .identifier => |s| state = .{ .identifier = .{ .string = s, .loc = res.ok.loc } },
+                    .string => |s| return ok(.{ .string = s }, res.ok.loc),
+                    .comma => return err(.comma, res.ok.loc),
+                    .close_round => return err(.close_round, res.ok.loc),
+                    .eof => return err(.eof, res.ok.loc),
+                    .open_round => state = .open_round,
+                    .equal => return err(.expected_identifier, res.ok.loc),
+                }
+            },
+            .open_round => {
+                const res = try self.tokenizer.next();
+                if (res == .err) return tokenizer_err(res.err);
+                switch (res.ok.token) {
+                    .string => |s| state = .{ .open_round_string = .{ .string = s, .loc = res.ok.loc } },
+                    .identifier => |s| state = .{ .open_round_identifier = .{ .string = s, .loc = res.ok.loc } },
+                    else => return err(.expected_string, res.ok.loc),
+                }
+            },
+            .open_round_string => |s| {
+                const res = try self.tokenizer.next();
+                if (res == .err) return tokenizer_err(res.err);
+                switch (res.ok.token) {
+                    .close_round => return ok(.{ .string = s.string }, s.loc),
+                    else => return err(.expected_close_round, res.ok.loc),
+                }
+            },
+            .open_round_identifier => |_| {
+                const res = try self.tokenizer.next();
+                if (res == .err) return tokenizer_err(res.err);
 
-                    // expect equal and drop/ignore identifier. E.g.:
-                    // (name=val), as in: person(...,
-                    // comment=(name=val) which is missing a function
-                    // name, probably should be comment=c(name=val)
-                    switch (res.ok.token) {
-                        .equal => state = .open_round,
-                        else => return err(.expected_equal, res.ok.loc),
-                    }
-                },
-                .identifier => |s| {
-                    const res = try self.tokenizer.next();
-                    if (res == .err) return tokenizer_err(res.err);
-                    switch (res.ok.token) {
-                        .open_round => state = .{ .funcall_start = .{
-                            .name = .{ .name = s.string, .loc = s.loc },
-                            .positional = std.ArrayList(FunctionArg).init(self.alloc),
-                            .named = std.ArrayList(NamedArgument).init(self.alloc),
-                        } },
-                        .comma => return ok(.{ .identifier = s.string }, s.loc),
-                        .close_round => {
-                            self.tokenizer.back(res.ok.loc); // backtrack
-                            return ok(.{ .identifier = s.string }, s.loc);
-                        },
-                        .eof => return ok(.{ .identifier = s.string }, res.ok.loc),
-                        else => |tok| return err(.{ .unexpected_token = tok }, res.ok.loc),
-                    }
-                },
-                .funcall_start => |*st| {
-                    const res = try self.tokenizer.next();
-                    if (res == .err) return tokenizer_err(res.err);
+                // expect equal and drop/ignore identifier. E.g.:
+                // (name=val), as in: person(...,
+                // comment=(name=val) which is missing a function
+                // name, probably should be comment=c(name=val)
+                switch (res.ok.token) {
+                    .equal => state = .open_round,
+                    else => return err(.expected_equal, res.ok.loc),
+                }
+            },
+            .identifier => |s| {
+                const res = try self.tokenizer.next();
+                if (res == .err) return tokenizer_err(res.err);
+                switch (res.ok.token) {
+                    .open_round => state = .{ .funcall_start = .{
+                        .name = .{ .name = s.string, .loc = s.loc },
+                        .positional = std.ArrayList(FunctionArg).init(self.alloc),
+                        .named = std.ArrayList(NamedArgument).init(self.alloc),
+                    } },
+                    .comma => return ok(.{ .identifier = s.string }, s.loc),
+                    .close_round => {
+                        self.tokenizer.back(res.ok.loc); // backtrack
+                        return ok(.{ .identifier = s.string }, s.loc);
+                    },
+                    .eof => return ok(.{ .identifier = s.string }, res.ok.loc),
+                    else => |tok| return err(.{ .unexpected_token = tok }, res.ok.loc),
+                }
+            },
+            .funcall_start => |*st| {
+                const res = try self.tokenizer.next();
+                if (res == .err) return tokenizer_err(res.err);
 
-                    switch (res.ok.token) {
-                        .identifier => |s| state = .{ .funcall_identifier = .{
-                            .state = st.*,
-                            .identifier = .{ .string = s, .loc = res.ok.loc },
-                        } },
-                        .string => |s| state = .{ .funcall_string = .{
-                            .state = st.*,
-                            .identifier = .{ .string = s, .loc = res.ok.loc },
-                        } },
-                        .comma => state = .{ .funcall_comma = st.* },
-                        .open_round => state = .{ .funcall_open_round_expect_string = st.* },
-                        .close_round => {
-                            // end of funcall
-                            return ok_function_call(.{
-                                .name = st.name.name,
-                                .positional = try st.positional.toOwnedSlice(),
-                                .named = try st.named.toOwnedSlice(),
-                            }, st.name.loc);
-                        },
+                switch (res.ok.token) {
+                    .identifier => |s| state = .{ .funcall_identifier = .{
+                        .state = st.*,
+                        .identifier = .{ .string = s, .loc = res.ok.loc },
+                    } },
+                    .string => |s| state = .{ .funcall_string = .{
+                        .state = st.*,
+                        .identifier = .{ .string = s, .loc = res.ok.loc },
+                    } },
+                    .comma => state = .{ .funcall_comma = st.* },
+                    .open_round => state = .{ .funcall_open_round_expect_string = st.* },
+                    .close_round => {
+                        // end of funcall
+                        return ok_function_call(.{
+                            .name = st.name.name,
+                            .positional = try st.positional.toOwnedSlice(),
+                            .named = try st.named.toOwnedSlice(),
+                        }, st.name.loc);
+                    },
 
-                        else => |tok| {
-                            std.debug.print("error: unexpected token in function {}\n", .{st});
-                            return err(.{ .unexpected_token = tok }, res.ok.loc);
-                        },
-                    }
-                },
-                .funcall_comma => |*st| {
-                    const res = try self.tokenizer.next();
-                    if (res == .err) return tokenizer_err(res.err);
+                    else => |tok| {
+                        std.debug.print("error: unexpected token in function {}\n", .{st});
+                        return err(.{ .unexpected_token = tok }, res.ok.loc);
+                    },
+                }
+            },
+            .funcall_comma => |*st| {
+                const res = try self.tokenizer.next();
+                if (res == .err) return tokenizer_err(res.err);
 
-                    // if we see a second comma, infer a null
-                    // positional argument. Otherwise, restart in
-                    // funcall_start state.
-                    switch (res.ok.token) {
-                        .comma => {
-                            try st.positional.append(.null);
-                            state = .{ .funcall_start = st.* };
-                        },
-                        else => {
-                            self.tokenizer.back(res.ok.loc);
-                            state = .{ .funcall_start = st.* };
-                        },
-                    }
-                },
-                .funcall_identifier => |*st| {
-                    const res = try self.tokenizer.next();
-                    if (res == .err) return tokenizer_err(res.err);
-                    switch (res.ok.token) {
-                        .comma => {
-                            try st.state.positional.append(.{ .identifier = st.identifier.string });
+                // if we see a second comma, infer a null
+                // positional argument. Otherwise, restart in
+                // funcall_start state.
+                switch (res.ok.token) {
+                    .comma => {
+                        try st.positional.append(.null);
+                        state = .{ .funcall_start = st.* };
+                    },
+                    else => {
+                        self.tokenizer.back(res.ok.loc);
+                        state = .{ .funcall_start = st.* };
+                    },
+                }
+            },
+            .funcall_identifier => |*st| {
+                const res = try self.tokenizer.next();
+                if (res == .err) return tokenizer_err(res.err);
+                switch (res.ok.token) {
+                    .comma => {
+                        try st.state.positional.append(.{ .identifier = st.identifier.string });
+                        state = .{ .funcall_start = st.state };
+                    },
+                    .equal => state = .{ .funcall_identifier_equal = .{
+                        .state = st.state,
+                        .identifier = st.identifier,
+                    } },
+                    .open_round => {
+                        // funcall as positional argument.
+                        // backtrack and parse expression
+                        self.tokenizer.back(st.identifier.loc);
+
+                        const inner = try self.next();
+                        if (inner == .err) return inner;
+
+                        const fc: FunctionCall =
+                            switch (inner.ok.node) {
+                            .function_call => |fc| fc,
+                            else => return err(.expected_funcall, res.ok.loc),
+                        };
+
+                        try st.state.positional.append(.{ .function_call = fc });
+                        state = .{ .funcall_start = st.state };
+                    },
+                    else => {
+                        self.tokenizer.back(res.ok.loc);
+                        state = .{ .funcall_start = st.state };
+                    },
+                }
+            },
+            .funcall_string => |*st| {
+                // deal with quoted named arguments
+                const res = try self.tokenizer.next();
+                if (res == .err) return tokenizer_err(res.err);
+
+                switch (res.ok.token) {
+                    .comma => {
+                        try st.state.positional.append(.{ .string = st.identifier.string });
+                        state = .{ .funcall_start = st.state };
+                    },
+                    .close_round => {
+                        try st.state.positional.append(.{ .string = st.identifier.string });
+                        self.tokenizer.back(res.ok.loc);
+                        state = .{ .funcall_start = st.state };
+                    },
+                    .equal => state = .{ .funcall_identifier_equal = .{
+                        .state = st.state,
+                        .identifier = st.identifier,
+                    } },
+                    else => {
+                        self.tokenizer.back(res.ok.loc); // back
+                        state = .{ .funcall_start = st.state };
+                    },
+                }
+            },
+            .funcall_identifier_equal => |*st| {
+                // parse next expression
+                const res = try self.next();
+                switch (res) {
+                    .err => |e| switch (e.err) {
+                        .close_round, .comma => {
+                            try append_named(&st.state.named, st.identifier.string, .null);
+                            self.tokenizer.back(e.loc); // backtrack
                             state = .{ .funcall_start = st.state };
                         },
-                        .equal => state = .{ .funcall_identifier_equal = .{
-                            .state = st.state,
-                            .identifier = st.identifier,
-                        } },
-                        .open_round => {
-                            // funcall as positional argument.
-                            // backtrack and parse expression
-                            self.tokenizer.back(st.identifier.loc);
-
-                            const inner = try self.next();
-                            if (inner == .err) return inner;
-
-                            const fc: FunctionCall =
-                                switch (inner.ok.node) {
-                                .function_call => |fc| fc,
-                                else => return err(.expected_funcall, res.ok.loc),
-                            };
-
-                            try st.state.positional.append(.{ .function_call = fc });
-                            state = .{ .funcall_start = st.state };
-                        },
-                        else => {
-                            self.tokenizer.back(res.ok.loc);
-                            state = .{ .funcall_start = st.state };
-                        },
-                    }
-                },
-                .funcall_string => |*st| {
-                    // deal with quoted named arguments
-                    const res = try self.tokenizer.next();
-                    if (res == .err) return tokenizer_err(res.err);
-
-                    switch (res.ok.token) {
-                        .comma => {
-                            try st.state.positional.append(.{ .string = st.identifier.string });
-                            state = .{ .funcall_start = st.state };
-                        },
-                        .close_round => {
-                            try st.state.positional.append(.{ .string = st.identifier.string });
-                            self.tokenizer.back(res.ok.loc);
-                            state = .{ .funcall_start = st.state };
-                        },
-                        .equal => state = .{ .funcall_identifier_equal = .{
-                            .state = st.state,
-                            .identifier = st.identifier,
-                        } },
-                        else => {
-                            self.tokenizer.back(res.ok.loc); // back
-                            state = .{ .funcall_start = st.state };
-                        },
-                    }
-                },
-                .funcall_identifier_equal => |*st| {
-                    // parse next expression
-                    const res = try self.next();
-                    switch (res) {
-                        .err => |e| switch (e.err) {
-                            .close_round, .comma => {
-                                try append_named(&st.state.named, st.identifier.string, .null);
-                                self.tokenizer.back(e.loc); // backtrack
-                                state = .{ .funcall_start = st.state };
-                            },
-                            else => return res,
-                        },
-                        .ok => {
-                            try append_named(&st.state.named, st.identifier.string, FunctionArg.fromNode(res.ok.node));
-                            state = .{ .funcall_start = st.state };
-                        },
-                    }
-                },
-                .funcall_open_round_expect_string => |st| {
-                    const res = try self.tokenizer.next();
-                    if (res == .err) return tokenizer_err(res.err);
-                    switch (res.ok.token) {
-                        .string => |s| state = .{ .funcall_open_round_string = .{
-                            .state = st,
-                            .string_loc = .{ .string = s, .loc = res.ok.loc },
-                        } },
-                        else => return err(.expected_string, res.ok.loc),
-                    }
-                },
-                .funcall_open_round_string => |*st| {
-                    const res = try self.tokenizer.next();
-                    if (res == .err) return tokenizer_err(res.err);
-                    switch (res.ok.token) {
-                        .close_round => {
-                            try st.state.positional.append(.{ .string = st.string_loc.string });
-                            state = .{ .funcall_start = st.state };
-                        },
-                        else => return err(.expected_close_round, res.ok.loc),
-                    }
-                },
-            };
+                        else => return res,
+                    },
+                    .ok => {
+                        try append_named(&st.state.named, st.identifier.string, FunctionArg.fromNode(res.ok.node));
+                        state = .{ .funcall_start = st.state };
+                    },
+                }
+            },
+            .funcall_open_round_expect_string => |st| {
+                const res = try self.tokenizer.next();
+                if (res == .err) return tokenizer_err(res.err);
+                switch (res.ok.token) {
+                    .string => |s| state = .{ .funcall_open_round_string = .{
+                        .state = st,
+                        .string_loc = .{ .string = s, .loc = res.ok.loc },
+                    } },
+                    else => return err(.expected_string, res.ok.loc),
+                }
+            },
+            .funcall_open_round_string => |*st| {
+                const res = try self.tokenizer.next();
+                if (res == .err) return tokenizer_err(res.err);
+                switch (res.ok.token) {
+                    .close_round => {
+                        try st.state.positional.append(.{ .string = st.string_loc.string });
+                        state = .{ .funcall_start = st.state };
+                    },
+                    else => return err(.expected_close_round, res.ok.loc),
+                }
+            },
+        };
     }
 
     fn append_named(named: *std.ArrayList(NamedArgument), name: []const u8, value: FunctionArg) !void {
