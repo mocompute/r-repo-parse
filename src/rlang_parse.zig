@@ -671,7 +671,7 @@ test "tokenize 2" {
     const alloc = std.testing.allocator;
     const source =
         \\     c(
-        \\  person("Caio", "Lente", , "clente@abj.org.br", role = c("aut", "cre"),
+        \\  person("first", "second", , "xxx@abc.def.xyz", role = c("aut", "cre"),
         \\           comment = c(ORCID = "0000-0001-8473-069X")),
         \\  )
         \\
@@ -689,12 +689,12 @@ test "tokenize 2" {
         .open_round,
         .{ .identifier = "person" },
         .open_round,
-        .{ .string = "Caio" },
+        .{ .string = "first" },
         .comma,
-        .{ .string = "Lente" },
+        .{ .string = "second" },
         .comma,
         .comma,
-        .{ .string = "clente@abj.org.br" },
+        .{ .string = "xxx@abc.def.xyz" },
         .comma,
         .{ .identifier = "role" },
         .equal,
@@ -795,7 +795,7 @@ test "tokenize named vector argument" {
 test "tokenize comment = NULL" {
     const alloc = std.testing.allocator;
     const source =
-        \\    person("Xiurui", "Zhu", , "zxr6@163.com", role = c("aut", "cre"),
+        \\    person("Xiurui", "Zhu", , "xxx@abc.def", role = c("aut", "cre"),
         \\           comment = NULL)
     ;
 
@@ -813,7 +813,7 @@ test "tokenize comment = NULL" {
         .{ .string = "Zhu" },
         .comma,
         .comma,
-        .{ .string = "zxr6@163.com" },
+        .{ .string = "xxx@abc.def" },
         .comma,
         .{ .identifier = "role" },
         .equal,
@@ -897,7 +897,7 @@ test "parse comment = NULL" {
     var arena = std.heap.ArenaAllocator.init(alloc);
     defer arena.deinit();
     const source =
-        \\    person("Xiurui", "Zhu", , "zxr6@163.com", role = c("aut", "cre"),
+        \\    person("Xiurui", "Zhu", , "xxx@abc.def", role = c("aut", "cre"),
         \\           comment = NULL)
     ;
     var strings = try StringStorage.init(alloc, std.heap.page_allocator);
@@ -917,7 +917,7 @@ test "parse email=)" {
     var arena = std.heap.ArenaAllocator.init(alloc);
     defer arena.deinit();
     const source =
-        \\    person(given = "Alfio", family = "Marazzi", role = "aut", email=)
+        \\    person(given = "First", family = "Second", role = "aut", email=)
     ;
     var strings = try StringStorage.init(alloc, std.heap.page_allocator);
     defer strings.deinit();
@@ -935,7 +935,7 @@ test "parse email=," {
     var arena = std.heap.ArenaAllocator.init(alloc);
     defer arena.deinit();
     const source =
-        \\    person(given = "Alfio", family = "Marazzi", role = "aut", email=,)
+        \\    person(given = "First", family = "Second", role = "aut", email=,)
     ;
     var strings = try StringStorage.init(alloc, std.heap.page_allocator);
     defer strings.deinit();
@@ -955,11 +955,11 @@ test "parse" {
     defer arena.deinit();
     const source =
         \\         c(
-        \\    person("Caio", "Lente", , "clente@abj.org.br", role = c("aut", "cre"),
+        \\    person("Caio", "Lente", , "xxx@abc.def.br", role = c("aut", "cre"),
         \\           comment = c(ORCID = "0000-0001-8473-069X")),
-        \\    person("Julio", "Trecenti", , "julio.trecenti@gmail.com", role = "aut",
+        \\    person("Julio", "Trecenti", , "xxx@abc.com", role = "aut",
         \\           comment = c(ORCID = "0000-0002-1680-6389")),
-        \\    person("Katerine", "Witkoski", , "kwitkoski@abj.org.br", role = "ctb",
+        \\    person("Katerine", "Witkoski", , "xxx@abc.def.br", role = "ctb",
         \\           comment = c(ORCID = "0000-0002-3691-6569")),
         \\    person("Associação Brasileira de Jurimetria", role = c("cph", "fnd"))
         \\  )
