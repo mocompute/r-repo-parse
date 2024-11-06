@@ -528,81 +528,79 @@ pub fn read(self: *Authors, source: []const u8, strings: *StringStorage) !void {
     var index: usize = 0;
     var package_name: ?[]const u8 = null;
     var prev_package_name: ?[]const u8 = null;
-    top: while (true) : (index += 1) {
-        switch (nodes[index]) {
-            .eof => break,
-            .stanza_end => {
-                prev_package_name = package_name;
-                package_name = null;
-            },
-            .field => |field| {
-                if (std.ascii.eqlIgnoreCase("package", field.name)) {
-                    package_name = try parsePackageName(nodes, &index, strings);
-                } else if (std.ascii.eqlIgnoreCase("authors@r", field.name)) {
-                    if (package_name == null) {
-                        std.debug.print("warning, skipping package after '{?s}' due to authors@r field preceeding package field.\n", .{prev_package_name});
-                        continue;
-                    }
-
-                    assert(package_name != null);
-
-                    const field_source = b: {
-                        index += 1;
-                        switch (nodes[index]) {
-                            .string_node => |s| break :b s,
-                            else => unreachable,
-                        }
-                    };
-
-                    var rtokenizer = RTokenizer.init(field_source.value, strings);
-                    defer rtokenizer.deinit();
-                    var rparser = RParser.init(arena.allocator(), &rtokenizer, strings);
-                    defer rparser.deinit();
-
-                    switch (try rparser.next()) {
-                        .ok => |ok| {
-                            switch (ok.node) {
-                                .function_call => |fc| {
-                                    // std.debug.print("Parsed: {}\n", .{fc});
-
-                                    // outer function can be c() or person()
-                                    if (std.mem.eql(u8, "c", fc.name)) {
-                                        for (fc.positional) |fa| {
-                                            switch (fa) {
-                                                .function_call => |c_fc| {
-                                                    if (eql("person", c_fc.name)) {
-                                                        try self.db.addFromFunctionCall(c_fc, package_name.?);
-                                                    } else unreachable;
-                                                },
-                                                else => unreachable,
-                                            }
-                                        }
-                                    } else if (eql("person", fc.name)) {
-                                        try self.db.addFromFunctionCall(fc, package_name.?);
-                                    } else unreachable;
-                                },
-                                .function_arg => {
-                                    std.debug.print("warning in package {s}: expected function call.\n", .{package_name.?});
-                                    // skip stanza and continue
-                                    while (true)
-                                        switch (nodes[index]) {
-                                            .stanza_end, .eof => continue :top,
-                                            else => index += 1,
-                                        };
-                                    // return error.RParseExpectedFunctionCall;
-                                },
-                            }
-                        },
-                        .err => |e| {
-                            std.debug.print("ERROR parsing package {s}: {}\n", .{ package_name.?, e });
-                            return error.RParseError;
-                        },
-                    }
+    top: while (true) : (index += 1) switch (nodes[index]) {
+        .eof => break,
+        .stanza_end => {
+            prev_package_name = package_name;
+            package_name = null;
+        },
+        .field => |field| {
+            if (std.ascii.eqlIgnoreCase("package", field.name)) {
+                package_name = try parsePackageName(nodes, &index, strings);
+            } else if (std.ascii.eqlIgnoreCase("authors@r", field.name)) {
+                if (package_name == null) {
+                    std.debug.print("warning, skipping package after '{?s}' due to authors@r field preceeding package field.\n", .{prev_package_name});
+                    continue;
                 }
-            },
-            else => continue,
-        }
-    }
+
+                assert(package_name != null);
+
+                const field_source = b: {
+                    index += 1;
+                    switch (nodes[index]) {
+                        .string_node => |s| break :b s,
+                        else => unreachable,
+                    }
+                };
+
+                var rtokenizer = RTokenizer.init(field_source.value, strings);
+                defer rtokenizer.deinit();
+                var rparser = RParser.init(arena.allocator(), &rtokenizer, strings);
+                defer rparser.deinit();
+
+                switch (try rparser.next()) {
+                    .ok => |ok| {
+                        switch (ok.node) {
+                            .function_call => |fc| {
+                                // std.debug.print("Parsed: {}\n", .{fc});
+
+                                // outer function can be c() or person()
+                                if (std.mem.eql(u8, "c", fc.name)) {
+                                    for (fc.positional) |fa| {
+                                        switch (fa) {
+                                            .function_call => |c_fc| {
+                                                if (eql("person", c_fc.name)) {
+                                                    try self.db.addFromFunctionCall(c_fc, package_name.?);
+                                                } else unreachable;
+                                            },
+                                            else => unreachable,
+                                        }
+                                    }
+                                } else if (eql("person", fc.name)) {
+                                    try self.db.addFromFunctionCall(fc, package_name.?);
+                                } else unreachable;
+                            },
+                            .function_arg => {
+                                std.debug.print("warning in package {s}: expected function call.\n", .{package_name.?});
+                                // skip stanza and continue
+                                while (true)
+                                    switch (nodes[index]) {
+                                        .stanza_end, .eof => continue :top,
+                                        else => index += 1,
+                                    };
+                                // return error.RParseExpectedFunctionCall;
+                            },
+                        }
+                    },
+                    .err => |e| {
+                        std.debug.print("ERROR parsing package {s}: {}\n", .{ package_name.?, e });
+                        return error.RParseError;
+                    },
+                }
+            }
+        },
+        else => continue,
+    };
 }
 
 fn parsePackageName(nodes: []Parser.Node, idx: *usize, strings: *StringStorage) ![]const u8 {
