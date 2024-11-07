@@ -310,7 +310,10 @@ const AuthorsDB = struct {
                 attr_id = try self.attributeId("role");
                 switch (na.value) {
                     .string, .identifier => |s| switch (Role.fromString(s)) {
-                        .unknown => try logUnknownRole(log, package_name, s),
+                        .unknown => {
+                            try logUnknownRole(log, package_name, s);
+                            try self.putExtraRole(package_id, person_id, s);
+                        },
                         else => |code| try self.putNewRole(package_id, person_id, attr_id, code),
                     },
 
@@ -319,7 +322,10 @@ const AuthorsDB = struct {
                             for (role_fc.positional) |fa| {
                                 switch (fa) {
                                     .string, .identifier => |s| switch (Role.fromString(s)) {
-                                        .unknown => try logUnknownRole(log, package_name, s),
+                                        .unknown => {
+                                            try logUnknownRole(log, package_name, s);
+                                            try self.putExtraRole(package_id, person_id, s);
+                                        },
                                         else => |code| try self.putNewRole(package_id, person_id, attr_id, code),
                                     },
                                     else => {
@@ -415,6 +421,32 @@ const AuthorsDB = struct {
             .attribute_id = attribute_id,
             .value = value,
         });
+    }
+
+    /// For roles that are not part of R's standard. See
+    /// MARC_relator_db_codes_used_with_R and MARC_R_usage:
+    /// https://github.com/r-devel/r-svn/blob/c20ebd2d417d9ebb915e32bfb0bfdad768f9a80a/src/library/utils/R/sysdata.R#L28C1-L39
+    fn putExtraRole(
+        self: *AuthorsDB,
+        package_id: PackageId,
+        person_id: PersonId,
+        value: []const u8,
+    ) !void {
+        const S = struct {
+            var extra_role: ?AttributeId = null; // static
+        };
+        if (S.extra_role == null) {
+            S.extra_role = try self.attributeId("extra_role");
+        }
+
+        if (S.extra_role) |attr_id| {
+            try self.person_strings.put(self.person_strings.data.nextId(), .{
+                .package_id = package_id,
+                .person_id = person_id,
+                .attribute_id = attr_id,
+                .value = value,
+            });
+        } else unreachable;
     }
 };
 
@@ -721,7 +753,7 @@ test "Authors" {
     const alloc = arena.allocator();
 
     const source =
-        \\Package: renv
+        \\Package: one
         \\Type: Package
         \\Title: Project Environments
         \\Version: 1.0.7.9000
@@ -730,18 +762,28 @@ test "Authors" {
         \\           comment = c(ORCID = "0000-0003-2880-7407")),
         \\    person("Hadley", "Wickham", role = c("aut"), email = "hadley@rstudio.com",
         \\           comment = c(ORCID = "0000-0003-4757-117X")),
-        \\    person("Posit Software, PBC", role = c("cph", "fnd"))
+        \\    person("Posit Software, PBC", role = c("cph", "fnd", "xyz", "zzz"))
         \\    )
+        \\
+        \\Package: one2
         \\Authors@R: person('Pierre-Yves', 'de Müllenheim', email = 'pydemull@uco.fr', role = c('cre', 'aut'), comment = c(ORCID = "0000-0001-9157-7371"))
+        \\
+        \\Package: two
         \\Authors@R: c(person(given = "Sy Han", family = "Chiou", email = "schiou@smu.edu", role = c("aut", "cre")),
         \\           person(given = "Sangwook", family = "Kang", role = "aut"),
         \\           person(given = "Jun", family = "Yan", role = "aut"))
+        \\
+        \\Package: three
         \\Authors@R: c(person(("Atanu"), "Bhattacharjee",
         \\                    email="atanustat@gmail.com",
         \\                    role=c("aut", "cre","ctb")),
         \\               person(("Gajendra Kumar"), "Vishwakarma", role=c("aut","ctb")),
         \\               person(("Pragya"), "Kumari", role=c("aut","ctb")))
+        \\
+        \\Package: four
         \\Authors@R: c(person("Patrick", "Mair", role = c("aut", "cre"), email = "mair@fas.harvard.edu"), person("Jan", "De Leeuw", role = "aut"))
+        \\
+        \\Package: five
         \\Authors@R: c(
         \\    person("Scott", "Chamberlain", role = "aut",
         \\        email = "myrmecocystus@gmail.com",
@@ -756,6 +798,8 @@ test "Authors" {
         \\    person("RStudio", role = "cph"),
         \\    person("DigitalOcean", role = "cph")
         \\    )
+        \\
+        \\Package: six
         \\Authors@R: c(person(given = c("Gavin", "L."), family = "Simpson",
         \\                    role = c("aut", "cre"),
         \\                    email = "ucfagls@gmail.com",
@@ -763,6 +807,8 @@ test "Authors" {
         \\           , person(given = "Jari", family = "Oksanen",  role = "aut")
         \\           , person(given = "Martin", family = "Maechler", role = "ctb")
         \\                    )
+        \\
+        \\Package: seven
         \\Authors@R: c(
         \\    person("Pierre", "Roudier", email = "roudierp@landcareresearch.co.nz", role = c("aut", "cre")),
         \\    person("Etienne", "Lalibert'{e}", email = NULL, role = c("ctb"))
@@ -791,8 +837,11 @@ test "Authors" {
     defer authors.deinit();
 
     const log = try authors.read(source, &strings);
-    _ = log; // TODO not implemented
 
+    for (log) |x| switch (x.tag) {
+        .warn, .err => std.debug.print("{}\n", .{x}),
+        .info => {},
+    };
     authors.db.debugPrint();
 }
 
