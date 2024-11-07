@@ -44,6 +44,11 @@ pub fn build(b: *Build) !void {
         .optimize = optimize,
     }).module("mos");
 
+    const cmdline = b.lazyDependency("cmdline", .{
+        .target = target,
+        .optimize = optimize,
+    });
+
     // -- end dependencies -----------------------------------------------------
 
     // -- begin C static library -----------------------------------------------
@@ -81,19 +86,31 @@ pub fn build(b: *Build) !void {
 
         b.getInstallStep().dependOn(&target_out.step);
     }
-
     // -- end C static library -----------------------------------------------
 
     // -- begin module -------------------------------------------------------
-
     const mod = b.addModule("r-repo-parse", .{
         .root_source_file = b.path("src/root.zig"),
         .target = target,
         .optimize = optimize,
     });
     mod.addImport("mos", mos);
-
     // -- end module ---------------------------------------------------------
+
+    // -- begin executable -------------------------------------------------------
+    const exe = b.addExecutable(.{
+        .name = "parse-authors",
+        .root_source_file = b.path("src/parse-authors.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    exe.root_module.addImport("mos", mos);
+    if (cmdline) |dep| {
+        exe.root_module.addImport("cmdline", dep.module("cmdline"));
+    }
+    b.installArtifact(exe);
+
+    // -- end executable ---------------------------------------------------------
 
     // -- begin test ---------------------------------------------------------
     const lib_unit_tests = b.addTest(.{
