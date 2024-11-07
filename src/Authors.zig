@@ -27,10 +27,13 @@ pub const LogTag = union(LogType) {
         no_package,
         no_function,
         no_person,
+        unknown_role_code,
     },
     err: enum {
         authors_at_r_wrong_type,
         rlang_parse_error,
+        expected_string_in_role,
+        named_argument_in_role,
     },
 };
 pub const LogItem = struct {
@@ -38,6 +41,7 @@ pub const LogItem = struct {
     loc: usize = 0,
     extra: union(enum) {
         none: void,
+        string: []const u8,
         rlang_parse_err: RParser.ErrLoc,
     } = .none,
     tag: LogTag,
@@ -47,16 +51,19 @@ pub const LogItem = struct {
         _ = options;
         try switch (self.tag) {
             .info => |x| switch (x) {
-                .no_authors_at_r => writer.print("info: no Authors@R field in package '{s}'", .{self.message}),
+                .no_authors_at_r => writer.print("info: Package '{s'}: no Authors@R field", .{self.message}),
             },
             .warn => |x| switch (x) {
                 .no_package => writer.print("warn: no package found in stanza", .{}),
-                .no_function => writer.print("warn: expected c() or person() function call in Authors@R field in package '{s}'", .{self.message}),
-                .no_person => writer.print("warn: expected person() in Authors@R field in package '{s}'", .{self.message}),
+                .no_function => writer.print("warn: Package '{s}': expected c() or person() function call in Authors@R field", .{self.message}),
+                .no_person => writer.print("warn: Package '{s}': expected person() in Authors@R field", .{self.message}),
+                .unknown_role_code => writer.print("warn: Package '{s}': unknown role code '{s}'", .{ self.message, self.extra.string }),
             },
             .err => |x| switch (x) {
-                .authors_at_r_wrong_type => writer.print("error: Authors@R parsed to wrong type in package '{s}'", .{self.message}),
-                .rlang_parse_error => writer.print("error: R lang parser error: {} in package '{s}' at location {}", .{ self.extra.rlang_parse_err.err, self.message, self.extra.rlang_parse_err.loc }),
+                .authors_at_r_wrong_type => writer.print("error: Package '{s}': Authors@R parsed to wrong type", .{self.message}),
+                .rlang_parse_error => writer.print("error: Package '{s}' R lang parser error: {} at location {}", .{ self.message, self.extra.rlang_parse_err.err, self.extra.rlang_parse_err.loc }),
+                .expected_string_in_role => writer.print("error: Package '{s}': role must be a string or identifier.", .{self.message}),
+                .named_argument_in_role => writer.print("error: Package '{s}': named argument not supported in role vector.", .{self.message}),
             },
         };
     }
@@ -160,7 +167,6 @@ const AuthorsDB = struct {
     pub fn addFromFunctionCall(self: *AuthorsDB, fc: FunctionCall, package_name: []const u8, log: *LogItems) !void {
         assert(std.mem.eql(u8, "person", fc.name));
         const eql = std.ascii.eqlIgnoreCase;
-        _ = log; // TODO not implemented
 
         const package_id = self.package_names.lookupString(package_name) orelse b: {
             const id = self.package_names.nextId();
@@ -303,22 +309,28 @@ const AuthorsDB = struct {
             } else if (eql("role", na.name)) {
                 attr_id = try self.attributeId("role");
                 switch (na.value) {
-                    .string => |s| try self.putNewRole(package_id, person_id, attr_id, Role.fromString(s)),
-                    .identifier => |s| try self.putNewRole(package_id, person_id, attr_id, Role.fromString(s)), // TODO: too permissive?
+                    .string, .identifier => |s| switch (Role.fromString(s)) {
+                        .unknown => try logUnknownRole(log, package_name, s),
+                        else => |code| try self.putNewRole(package_id, person_id, attr_id, code),
+                    },
+
                     .function_call => |role_fc| {
                         if (eql("c", role_fc.name)) {
                             for (role_fc.positional) |fa| {
                                 switch (fa) {
-                                    .string => |s| try self.putNewRole(package_id, person_id, attr_id, Role.fromString(s)),
+                                    .string, .identifier => |s| switch (Role.fromString(s)) {
+                                        .unknown => try logUnknownRole(log, package_name, s),
+                                        else => |code| try self.putNewRole(package_id, person_id, attr_id, code),
+                                    },
                                     else => {
-                                        std.debug.print("ERROR: package {s}: expected string in role.\n", .{package_name});
-                                        unreachable;
+                                        try logExpectedStringInRole(log, package_name);
+                                        continue;
                                     },
                                 }
                             }
                             for (role_fc.named) |_| {
-                                std.debug.print("ERROR: package {s}: named role not supported.\n", .{package_name});
-                                unreachable;
+                                try logNamedArgumentInRole(log, package_name);
+                                continue;
                             }
                         }
                     },
@@ -546,7 +558,6 @@ const Role = enum {
         } else if (eql(s, "rev")) {
             return .reviewer;
         } else {
-            std.debug.print("warning: got unknown role: {s}\n", .{s});
             return .unknown;
         }
     }
@@ -664,6 +675,9 @@ fn logParseError(log: *LogItems, e: RParser.ErrLoc, package_name: ?[]const u8) !
         try log.append(.{ .tag = .{ .err = .rlang_parse_error }, .message = "<unknown>", .loc = 0, .extra = .{ .rlang_parse_err = e } });
     }
 }
+fn logUnknownRole(log: *LogItems, package_name: []const u8, role: []const u8) !void {
+    try log.append(.{ .tag = .{ .warn = .unknown_role_code }, .message = package_name, .loc = 0, .extra = .{ .string = role } });
+}
 fn logNoAuthorsAtR(log: *LogItems, package_name: []const u8) !void {
     try log.append(.{ .tag = .{ .info = .no_authors_at_r }, .message = package_name, .loc = 0 });
 }
@@ -682,6 +696,12 @@ fn logAuthorsAtRWrongType(log: *LogItems, package_name: ?[]const u8) !void {
     } else {
         try log.append(.{ .tag = .{ .err = .authors_at_r_wrong_type }, .message = "<unknown>", .loc = 0 });
     }
+}
+fn logExpectedStringInRole(log: *LogItems, package_name: []const u8) !void {
+    try log.append(.{ .tag = .{ .err = .expected_string_in_role }, .message = package_name });
+}
+fn logNamedArgumentInRole(log: *LogItems, package_name: []const u8) !void {
+    try log.append(.{ .tag = .{ .err = .named_argument_in_role }, .message = package_name });
 }
 
 fn parsePackageName(nodes: []Parser.Node, idx: *usize, strings: *StringStorage) ![]const u8 {
