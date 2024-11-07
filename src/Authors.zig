@@ -681,9 +681,9 @@ pub fn read(self: *Authors, source: []const u8, strings: *StringStorage) ![]LogI
             authors_source = null;
         },
         .field => |field| {
-            if (std.ascii.eqlIgnoreCase("package", field.name)) {
+            if (eql("package", field.name)) {
                 package_name = try parsePackageName(nodes, &index, strings);
-            } else if (std.ascii.eqlIgnoreCase("authors@r", field.name)) {
+            } else if (eql("authors@r", field.name)) {
                 // save authors@r field data to process at end of stanza.
                 index += 1;
                 switch (nodes[index]) {
