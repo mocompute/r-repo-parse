@@ -9,6 +9,7 @@ const Options = .{
     .{ "db", 0 }, // suppress -d option
     .{ "force", false },
     .{ "help", false },
+    .{"parse"},
     .{ "verbose", false },
 };
 
@@ -18,15 +19,17 @@ var _force = false;
 
 const usage =
     \\Usage: parse-authors [options] <packages-file>
+    \\       parse-authors --parse <authors@r-code>
     \\
     \\where <packages-file> may be plain text or gzipped file containing
     \\one or more Package stanzas with an Authors@R field.
     \\
     \\Options:
-    \\  --db <file>    Change default SQLite3 db filename [parse-authors.db]
-    \\  --force, -f    Overwrite existing db file if it exists
-    \\  --help, -h     Display help
-    \\  --verbose, -v  Enable verbose logging
+    \\  --db <file>            Change default SQLite3 db filename [parse-authors.db]
+    \\  --force, -f            Overwrite existing db file if it exists
+    \\  --help, -h             Display help
+    \\  --parse, -p <string>   Instead of parsing a file, parse the argument
+    \\  --verbose, -v          Enable verbose logging
     \\
 ;
 
@@ -54,6 +57,17 @@ pub fn main() !void {
     }
     if (options.present("force")) {
         _force = true;
+    }
+
+    // set up Authors
+    var strings = try StringStorage.init(alloc, std.heap.page_allocator);
+    defer strings.deinit();
+    var authors = Authors.init(alloc);
+    defer authors.deinit();
+
+    if (options.get("parse")) |in| {
+        // dispatch to alternate workflow
+        return do_parse(alloc, &authors, &strings, in);
     }
 
     if (options.positional().len < 1) {
@@ -98,13 +112,6 @@ pub fn main() !void {
     // init db
     try create_tables(conn);
 
-    // set up Authors
-    var strings = try StringStorage.init(alloc, std.heap.page_allocator);
-    defer strings.deinit();
-
-    var authors = Authors.init(alloc);
-    defer authors.deinit();
-
     // read files
     var timer = try std.time.Timer.start();
     for (options.positional()) |file| {
@@ -120,6 +127,24 @@ pub fn main() !void {
     timer.reset();
     try dump_authors_db(conn, &authors.db);
     log("Dumping database took {}ms\n", .{@divFloor(timer.lap(), 1_000_000)});
+}
+
+fn do_parse(alloc: std.mem.Allocator, authors: *Authors, strings: *StringStorage, in: []const u8) !void {
+    const source = try std.fmt.allocPrint(alloc,
+        \\Package: command-line-input
+        \\Authors@R: {s}
+        \\
+    , .{in});
+    defer alloc.free(source);
+
+    const parse_log = try authors.read(source, strings);
+
+    for (parse_log) |x| switch (x.tag) {
+        .warn, .err => log("{}\n", .{x}),
+        .info => {},
+    };
+
+    authors.db.debugPrint();
 }
 
 fn create_tables(conn: mosql.Connection) !void {
