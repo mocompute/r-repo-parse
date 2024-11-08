@@ -30,7 +30,8 @@
             .lazy = true,
         },
         .mosql = .{
-            .path = "../mosql", // FIXME
+            .url = "https://codeberg.org/mocompute/mosql/archive/refs/tags/v0.1.1.tar.gz",
+            .hash = "1220f4bea95ab8ad7281f03bc6268924a8b24170f60eb7ab0e6beb2c56fcfc46e0b0",
             .lazy = true,
         },
     },
