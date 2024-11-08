@@ -28,6 +28,7 @@ pub const LogTag = union(LogType) {
         no_function,
         no_person,
         unknown_role_code,
+        multiple_authors_r_fields,
     },
     err: enum {
         authors_at_r_wrong_type,
@@ -58,6 +59,7 @@ pub const LogItem = struct {
                 .no_function => writer.print("warn: Package '{s}': expected c() or person() function call in Authors@R field", .{self.message}),
                 .no_person => writer.print("warn: Package '{s}': expected person() in Authors@R field", .{self.message}),
                 .unknown_role_code => writer.print("warn: Package '{s}': unknown role code '{s}'", .{ self.message, self.extra.string }),
+                .multiple_authors_r_fields => writer.print("warn: Package '{s}': multiple Authors@R fields.", .{self.message}),
             },
             .err => |x| switch (x) {
                 .authors_at_r_wrong_type => writer.print("error: Package '{s}': Authors@R parsed to wrong type", .{self.message}),
@@ -704,6 +706,8 @@ pub fn read(self: *Authors, source: []const u8, strings: *StringStorage) ![]LogI
                 package_name = try parsePackageName(nodes, &index, strings);
             } else if (eql("authors@r", field.name)) {
                 // save authors@r field data to process at end of stanza.
+                if (authors_source != null) try logMultipleAuthorsAtRFields(&log, package_name);
+
                 index += 1;
                 switch (nodes[index]) {
                     .string_node => |s| authors_source = s.value,
@@ -717,6 +721,14 @@ pub fn read(self: *Authors, source: []const u8, strings: *StringStorage) ![]LogI
         else => continue,
     };
     return try log.toOwnedSlice();
+}
+
+fn logMultipleAuthorsAtRFields(log: *LogItems, package_name: ?[]const u8) !void {
+    if (package_name) |pname| {
+        try log.append(.{ .tag = .{ .warn = .multiple_authors_r_fields }, .message = pname, .loc = 0 });
+    } else {
+        try log.append(.{ .tag = .{ .warn = .multiple_authors_r_fields }, .message = "<unknown>", .loc = 0 });
+    }
 }
 
 fn logParseError(log: *LogItems, e: RParser.ErrLoc, package_name: ?[]const u8) !void {
@@ -847,6 +859,10 @@ test "Authors" {
         \\Config/testthat/edition: 3
         \\Config/testthat/parallel: true
         \\Config/testthat/start-first: bioconductor,python,install,restore,snapshot,retrieve,remotes
+        \\
+        \\Package: eight
+        \\Authors@R: c()
+        \\Authors@R: person("multiple", "fields")
     ;
 
     var strings = try StringStorage.init(alloc, std.heap.page_allocator);
