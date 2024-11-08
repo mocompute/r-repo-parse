@@ -10,16 +10,18 @@ const Options = .{
     .{ "force", false },
     .{ "help", false },
     .{"parse"},
+    .{ "sql", false, 0 },
     .{ "verbose", false },
 };
 
 const DB_FILE = "parse-authors.db";
 var _verbose = false;
 var _force = false;
+var _sql = false;
 
 const usage =
     \\Usage: parse-authors [options] <packages-file>
-    \\       parse-authors --parse <authors@r-code>
+    \\       parse-authors [options] --parse <authors@r code>
     \\
     \\where <packages-file> may be plain text or gzipped file containing
     \\one or more Package stanzas with an Authors@R field.
@@ -29,6 +31,8 @@ const usage =
     \\  --force, -f            Overwrite existing db file if it exists
     \\  --help, -h             Display help
     \\  --parse, -p <string>   Instead of parsing a file, parse the argument
+    \\  --sql                  For --parse, output SQL instead of plain text.
+    \\                         Requires 'sqlite3' on path.
     \\  --verbose, -v          Enable verbose logging
     \\
 ;
@@ -57,6 +61,9 @@ pub fn main() !void {
     }
     if (options.present("force")) {
         _force = true;
+    }
+    if (options.present("sql")) {
+        _sql = true;
     }
 
     // set up Authors
@@ -144,7 +151,33 @@ fn do_parse(alloc: std.mem.Allocator, authors: *Authors, strings: *StringStorage
         .info => {},
     };
 
-    authors.db.debugPrint();
+    if (_sql) {
+        // TODO seems like std should have this somewhere other than std.testing
+        var tmpdir = std.testing.tmpDir(.{});
+        defer tmpdir.cleanup();
+        const tmpdirpath = try tmpdir.dir.realpathAlloc(alloc, ".");
+        defer alloc.free(tmpdirpath);
+        const tmppath = try std.fs.path.join(alloc, &.{ tmpdirpath, "parse.db" });
+        defer alloc.free(tmppath);
+
+        var conn = try mosql.Connection.open(tmppath);
+        defer conn.close_wait();
+        try create_tables(conn);
+        try dump_authors_db(conn, &authors.db);
+
+        const result = try std.process.Child.run(.{
+            .allocator = alloc,
+            .argv = &.{ "sqlite3", tmppath, ".dump" },
+        });
+        defer {
+            alloc.free(result.stderr);
+            alloc.free(result.stdout);
+        }
+
+        std.debug.print("{s}", .{result.stdout});
+    } else {
+        authors.db.debugPrint();
+    }
 }
 
 fn create_tables(conn: mosql.Connection) !void {
