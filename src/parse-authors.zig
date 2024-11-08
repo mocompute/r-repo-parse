@@ -122,11 +122,72 @@ fn create_tables(conn: *mosql.Connection) !void {
         \\PRAGMA dqs_ddl=0;
     );
     try conn.exec(
-        \\DROP TABLE IF EXISTS authors;
-        \\CREATE TABLE authors (
-        \\id INTEGER PRIMARY KEY
+        \\DROP TABLE IF EXISTS person;
+        \\CREATE TABLE person (
+        \\  id INTEGER PRIMARY KEY
+        \\);
+        \\
+        \\DROP TABLE IF EXISTS attribute;
+        \\CREATE TABLE attribute (
+        \\  id INTEGER PRIMARY KEY
+        \\, name TEXT NOT NULL
+        \\);
+        \\
+        \\DROP TABLE IF EXISTS role;
+        \\CREATE TABLE role (
+        \\  id INTEGER PRIMARY KEY
+        \\, name TEXT NOT NULL
+        \\);
+        \\
+        \\DROP TABLE IF EXISTS package;
+        \\CREATE TABLE package (
+        \\  id INTEGER PRIMARY KEY
+        \\, name TEXT NOT NULL
+        \\);
+        \\
+        \\DROP TABLE IF EXISTS person_value;
+        \\CREATE TABLE person_value (
+        \\  id INTEGER PRIMARY KEY
+        \\, person_id INTEGER NOT NULL REFERENCES person(id) ON DELETE CASCADE
+        \\, package_id INTEGER NOT NULL REFERENCES package(id) ON DELETE CASCADE
+        \\, attribute_id INTEGER NOT NULL REFERENCES attribute(id) ON DELETE CASCADE
+        \\, text TEXT NOT NULL
+        \\);
+        \\
+        \\DROP TABLE IF EXISTS person_role;
+        \\CREATE TABLE person_role (
+        \\  id INTEGER PRIMARY KEY
+        \\, person_id INTEGER NOT NULL REFERENCES person(id) ON DELETE CASCADE
+        \\, package_id INTEGER NOT NULL REFERENCES package(id) ON DELETE CASCADE
+        \\, attribute_id INTEGER NOT NULL REFERENCES attribute(id) ON DELETE CASCADE
+        \\, role_id INTEGER NOT NULL REFERENCES role(id) ON DELETE CASCADE
         \\);
     );
+
+    try insert_roles(conn);
+}
+
+fn insert_roles(conn: *mosql.Connection) !void {
+    var buf: [1024:0]u8 = undefined;
+    var fbs = std.io.fixedBufferStream(&buf);
+    var writer = fbs.writer();
+    const format = std.fmt.format;
+
+    try format(writer, "INSERT INTO role (id, name) VALUES ", .{});
+
+    for (1..@intFromEnum(Authors.Role.last)) |i| {
+        try format(writer, "({}, '{s}')", .{
+            i,
+            Authors.Role.toString(@enumFromInt(i)),
+        });
+        if (i < @intFromEnum(Authors.Role.last) - 1) {
+            _ = try writer.write(", ");
+        }
+    }
+
+    _ = try writer.write(";");
+    _ = try writer.writeByte(0);
+    try conn.exec(&buf);
 }
 
 fn read_file(alloc: std.mem.Allocator, authors: *Authors, strings: *StringStorage, path: []const u8) !void {

@@ -551,8 +551,8 @@ const PersonAttributeId = u32;
 const PersonId = u32;
 const PackageId = u32;
 
-const Role = enum {
-    unknown,
+pub const Role = enum(u8) {
+    unknown, // must be first
     author,
     compiler,
     contributor,
@@ -564,6 +564,7 @@ const Role = enum {
     data_contributor,
     funder,
     reviewer,
+    last, // must be last
 
     pub fn fromString(s: []const u8) Role {
         const eql = std.ascii.eqlIgnoreCase;
@@ -592,6 +593,24 @@ const Role = enum {
         } else {
             return .unknown;
         }
+    }
+
+    /// Undefined for .unknown and .last.
+    pub fn toString(self: Role) []const u8 {
+        return switch (self) {
+            .author => "aut",
+            .compiler => "com",
+            .contributor => "ctb",
+            .copyright_holder => "cph",
+            .creator => "cre",
+            .thesis_advisor => "ths",
+            .translator => "trl",
+            .contractor => "ctr",
+            .data_contributor => "dtc",
+            .funder => "fnd",
+            .reviewer => "rev",
+            .unknown, .last => unreachable,
+        };
     }
 };
 
