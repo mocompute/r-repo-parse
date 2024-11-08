@@ -96,7 +96,7 @@ pub fn main() !void {
     }
 
     // init db
-    try create_tables(&conn);
+    try create_tables(conn);
 
     // set up Authors
     var strings = try StringStorage.init(alloc, std.heap.page_allocator);
@@ -118,11 +118,11 @@ pub fn main() !void {
 
     // dump to db
     timer.reset();
-    try dump_authors_db(&conn, &authors.db);
+    try dump_authors_db(conn, &authors.db);
     log("Dumping database took {}ms\n", .{@divFloor(timer.lap(), 1_000_000)});
 }
 
-fn create_tables(conn: *mosql.Connection) !void {
+fn create_tables(conn: mosql.Connection) !void {
     // set recommended security settings for untrusted databases.
     try conn.exec(
 
@@ -183,9 +183,9 @@ fn create_tables(conn: *mosql.Connection) !void {
     try insert_roles(conn);
 }
 
-fn insert_roles(conn: *mosql.Connection) !void {
+fn insert_roles(conn: mosql.Connection) !void {
     var role = try mosql.Statement.init(
-        conn.*,
+        conn,
         "INSERT INTO ROLE(id, name) VALUES(?,?)",
     );
     defer role.deinit();
@@ -225,30 +225,30 @@ fn read_file(alloc: std.mem.Allocator, authors: *Authors, strings: *StringStorag
     }
 }
 
-fn dump_authors_db(conn: *mosql.Connection, db: *const Authors.AuthorsDB) !void {
+fn dump_authors_db(conn: mosql.Connection, db: *const Authors.AuthorsDB) !void {
     var attribute = try mosql.Statement.init(
-        conn.*,
+        conn,
         "INSERT INTO attribute(id, name) VALUES(?,?)",
     );
     defer attribute.deinit();
 
     var package = try mosql.Statement.init(
-        conn.*,
+        conn,
         "INSERT INTO package(id, name) VALUES(?,?)",
     );
     defer package.deinit();
 
-    var person_id = try mosql.Statement.init(conn.*, "INSERT INTO person(id) VALUES(?)");
+    var person_id = try mosql.Statement.init(conn, "INSERT INTO person(id) VALUES(?)");
     defer person_id.deinit();
 
     var person_attr = try mosql.Statement.init(
-        conn.*,
+        conn,
         "INSERT INTO person_value(person_id, package_id, attribute_id, text) VALUES(?,?,?,?)",
     );
     defer person_attr.deinit();
 
     var person_role = try mosql.Statement.init(
-        conn.*,
+        conn,
         "INSERT INTO person_role(person_id, package_id, role_id) VALUES(?,?,?)",
     );
     defer person_role.deinit();

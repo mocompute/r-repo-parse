@@ -30,8 +30,8 @@
             .lazy = true,
         },
         .mosql = .{
-            .url = "https://codeberg.org/mocompute/mosql/archive/refs/tags/v0.1.1.tar.gz",
-            .hash = "1220f4bea95ab8ad7281f03bc6268924a8b24170f60eb7ab0e6beb2c56fcfc46e0b0",
+            .url = "https://codeberg.org/mocompute/mosql/archive/refs/tags/v0.2.0.tar.gz",
+            .hash = "1220a96804b95a365d48d3ac2401e3fffe97d67bbc78eda347cfd21f4ea70b946ae9",
             .lazy = true,
         },
     },
