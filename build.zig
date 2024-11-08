@@ -48,6 +48,10 @@ pub fn build(b: *Build) !void {
         .target = target,
         .optimize = optimize,
     });
+    const mosql = b.lazyDependency("mosql", .{
+        .target = target,
+        .optimize = optimize,
+    });
 
     // -- end dependencies -----------------------------------------------------
 
@@ -107,6 +111,10 @@ pub fn build(b: *Build) !void {
     exe.root_module.addImport("mos", mos);
     if (cmdline) |dep| {
         exe.root_module.addImport("cmdline", dep.module("cmdline"));
+    }
+    if (mosql) |dep| {
+        exe.root_module.addImport("mosql", dep.module("mosql"));
+        exe.linkLibC();
     }
     b.installArtifact(exe);
 

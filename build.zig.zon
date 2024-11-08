@@ -29,6 +29,10 @@
             .hash = "1220282a3821f32628ba00a350b20846201dca82208c4ca0f63fdaaab0d1106f9141",
             .lazy = true,
         },
+        .mosql = .{
+            .path = "../mosql", // FIXME
+            .lazy = true,
+        },
     },
 
     .paths = .{
