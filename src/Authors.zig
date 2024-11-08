@@ -83,7 +83,7 @@ pub fn deinit(self: *Authors) void {
     self.* = undefined;
 }
 
-const AuthorsDB = struct {
+pub const AuthorsDB = struct {
     alloc: Allocator,
     person_ids: Storage(PersonId, PersonId),
     person_strings: PersonAttributes([]const u8),

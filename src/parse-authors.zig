@@ -67,7 +67,7 @@ pub fn main() !void {
         break :b DB_FILE;
     };
 
-    log("parse-authors: using db file: {s}\n", .{db_file});
+    log("using db file: {s}\n", .{db_file});
 
     // test access to existing file
     const file_exists = b: {
@@ -81,11 +81,19 @@ pub fn main() !void {
     if (!_force and file_exists) {
         std.debug.print("error: file '{s}' already exists. Pass --force to overwrite.\n", .{db_file});
         std.process.exit(1);
+    } else if (_force and file_exists) {
+        std.debug.print("warning: overwriting file '{s}'\n", .{db_file});
     }
 
     // open db
     var conn = try mosql.Connection.open(db_file);
-    defer conn.close_wait();
+    defer {
+        var timer = std.time.Timer.start() catch null;
+        conn.close_wait();
+        if (timer) |*t| {
+            log("closing database took {}ms\n", .{@divFloor(t.lap(), 1_000_000)});
+        }
+    }
 
     // init db
     try create_tables(&conn);
@@ -107,12 +115,20 @@ pub fn main() !void {
     // summary stats
     if (_verbose)
         authors.db.debugPrintInfo();
+
+    // dump to db
+    timer.reset();
+    try dump_authors_db(&conn, &authors.db);
+    log("Dumping database took {}ms\n", .{@divFloor(timer.lap(), 1_000_000)});
 }
 
 fn create_tables(conn: *mosql.Connection) !void {
-    // set WAL mode and recommended security settings for untrusted databases.
+    // set recommended security settings for untrusted databases.
     try conn.exec(
-        \\PRAGMA journal_mode=WAL;
+
+    // don't need write ahead log
+    // \\PRAGMA journal_mode=WAL;
+
         \\PRAGMA foreign_keys=1;
         \\PRAGMA trusted_schema=0;
         \\PRAGMA enable_view=0;
@@ -122,30 +138,32 @@ fn create_tables(conn: *mosql.Connection) !void {
         \\PRAGMA dqs_ddl=0;
     );
     try conn.exec(
+        \\DROP TABLE IF EXISTS person_role;
+        \\DROP TABLE IF EXISTS person_value;
         \\DROP TABLE IF EXISTS person;
+        \\DROP TABLE IF EXISTS package;
+        \\DROP TABLE IF EXISTS role;
+        \\DROP TABLE IF EXISTS attribute;
+        \\
         \\CREATE TABLE person (
         \\  id INTEGER PRIMARY KEY
         \\);
         \\
-        \\DROP TABLE IF EXISTS attribute;
         \\CREATE TABLE attribute (
         \\  id INTEGER PRIMARY KEY
         \\, name TEXT NOT NULL
         \\);
         \\
-        \\DROP TABLE IF EXISTS role;
         \\CREATE TABLE role (
         \\  id INTEGER PRIMARY KEY
         \\, name TEXT NOT NULL
         \\);
         \\
-        \\DROP TABLE IF EXISTS package;
         \\CREATE TABLE package (
         \\  id INTEGER PRIMARY KEY
         \\, name TEXT NOT NULL
         \\);
         \\
-        \\DROP TABLE IF EXISTS person_value;
         \\CREATE TABLE person_value (
         \\  id INTEGER PRIMARY KEY
         \\, person_id INTEGER NOT NULL REFERENCES person(id) ON DELETE CASCADE
@@ -154,12 +172,10 @@ fn create_tables(conn: *mosql.Connection) !void {
         \\, text TEXT NOT NULL
         \\);
         \\
-        \\DROP TABLE IF EXISTS person_role;
         \\CREATE TABLE person_role (
         \\  id INTEGER PRIMARY KEY
         \\, person_id INTEGER NOT NULL REFERENCES person(id) ON DELETE CASCADE
         \\, package_id INTEGER NOT NULL REFERENCES package(id) ON DELETE CASCADE
-        \\, attribute_id INTEGER NOT NULL REFERENCES attribute(id) ON DELETE CASCADE
         \\, role_id INTEGER NOT NULL REFERENCES role(id) ON DELETE CASCADE
         \\);
     );
@@ -168,26 +184,20 @@ fn create_tables(conn: *mosql.Connection) !void {
 }
 
 fn insert_roles(conn: *mosql.Connection) !void {
-    var buf: [1024:0]u8 = undefined;
-    var fbs = std.io.fixedBufferStream(&buf);
-    var writer = fbs.writer();
-    const format = std.fmt.format;
+    var role = try mosql.Statement.init(
+        conn.*,
+        "INSERT INTO ROLE(id, name) VALUES(?,?)",
+    );
+    defer role.deinit();
 
-    try format(writer, "INSERT INTO role (id, name) VALUES ", .{});
-
+    try conn.begin();
     for (1..@intFromEnum(Authors.Role.last)) |i| {
-        try format(writer, "({}, '{s}')", .{
-            i,
-            Authors.Role.toString(@enumFromInt(i)),
-        });
-        if (i < @intFromEnum(Authors.Role.last) - 1) {
-            _ = try writer.write(", ");
-        }
+        try role.reset();
+        role.bind_int(1, @intCast(i));
+        role.bind_text(2, Authors.Role.toString(@enumFromInt(i)));
+        step_one(&role);
     }
-
-    _ = try writer.write(";");
-    _ = try writer.writeByte(0);
-    try conn.exec(&buf);
+    try conn.commit();
 }
 
 fn read_file(alloc: std.mem.Allocator, authors: *Authors, strings: *StringStorage, path: []const u8) !void {
@@ -215,7 +225,115 @@ fn read_file(alloc: std.mem.Allocator, authors: *Authors, strings: *StringStorag
     }
 }
 
+fn dump_authors_db(conn: *mosql.Connection, db: *const Authors.AuthorsDB) !void {
+    var attribute = try mosql.Statement.init(
+        conn.*,
+        "INSERT INTO attribute(id, name) VALUES(?,?)",
+    );
+    defer attribute.deinit();
+
+    var package = try mosql.Statement.init(
+        conn.*,
+        "INSERT INTO package(id, name) VALUES(?,?)",
+    );
+    defer package.deinit();
+
+    var person_id = try mosql.Statement.init(conn.*, "INSERT INTO person(id) VALUES(?)");
+    defer person_id.deinit();
+
+    var person_attr = try mosql.Statement.init(
+        conn.*,
+        "INSERT INTO person_value(person_id, package_id, attribute_id, text) VALUES(?,?,?,?)",
+    );
+    defer person_attr.deinit();
+
+    var person_role = try mosql.Statement.init(
+        conn.*,
+        "INSERT INTO person_role(person_id, package_id, role_id) VALUES(?,?,?)",
+    );
+    defer person_role.deinit();
+
+    // attribute_names
+    try conn.begin();
+    for (db.attribute_names.data.items, 0..) |x, id| {
+        try attribute.reset();
+        attribute.bind_int(1, @intCast(id));
+        attribute.bind_text(2, x);
+        step_one(&attribute);
+    }
+    try conn.commit();
+
+    // package_names
+    try conn.begin();
+    for (db.package_names.data.items, 0..) |x, id| {
+        if (id % 1000 == 0) {
+            try conn.commit();
+            try conn.begin();
+        }
+        try package.reset();
+        package.bind_int(1, @intCast(id));
+        package.bind_text(2, x);
+        step_one(&package);
+    }
+    try conn.commit();
+
+    // person_ids
+    try conn.begin();
+    for (0..db.person_ids._next) |id| {
+        if (id % 1000 == 0) {
+            try conn.commit();
+            try conn.begin();
+        }
+        try person_id.reset();
+        person_id.bind_int(1, @intCast(id));
+        step_one(&person_id);
+    }
+    try conn.commit();
+
+    // person_values
+    try conn.begin();
+    for (db.person_strings.data.data.items, 0..) |x, i| {
+        if (i % 1000 == 0) {
+            try conn.commit();
+            try conn.begin();
+        }
+        try person_attr.reset();
+        person_attr.bind_int(1, x.person_id);
+        person_attr.bind_int(2, x.package_id);
+        person_attr.bind_int(3, x.attribute_id);
+        person_attr.bind_text(4, x.value);
+        step_one(&person_attr);
+    }
+    try conn.commit();
+
+    // person_roles
+    try conn.begin();
+    for (db.person_roles.data.data.items, 0..) |x, i| {
+        if (i % 1000 == 0) {
+            try conn.commit();
+            try conn.begin();
+        }
+        try person_role.reset();
+        person_role.bind_int(1, x.person_id);
+        person_role.bind_int(2, x.package_id);
+        person_role.bind_int(3, @intFromEnum(x.value));
+        step_one(&person_role);
+    }
+    try conn.commit();
+}
+
 fn log(comptime fmt: []const u8, args: anytype) void {
     if (_verbose)
         std.debug.print(fmt, args);
+}
+
+fn step_one(stmt: *mosql.Statement) void {
+    const res = stmt.step() catch |err| {
+        std.debug.print("error: statement: {s}\n", .{@errorName(err)});
+        std.process.exit(1);
+    };
+    if (res != .done) {
+        std.debug.print("error: statement expected done\n", .{});
+        std.process.exit(1);
+    }
 }
