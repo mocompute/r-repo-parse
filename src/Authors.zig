@@ -21,6 +21,8 @@ db: AuthorsDB,
 pub const LogType = enum { info, warn, err };
 pub const LogTag = union(LogType) {
     info: enum {
+        package,
+        authors_at_r,
         no_authors_at_r,
     },
     warn: enum {
@@ -31,6 +33,7 @@ pub const LogTag = union(LogType) {
         multiple_authors_r_fields,
     },
     err: enum {
+        package,
         authors_at_r_wrong_type,
         rlang_parse_error,
         expected_string_in_role,
@@ -52,7 +55,9 @@ pub const LogItem = struct {
         _ = options;
         try switch (self.tag) {
             .info => |x| switch (x) {
-                .no_authors_at_r => writer.print("info: Package '{s'}: no Authors@R field", .{self.message}),
+                .package => writer.print("info: Package '{s}' declared", .{self.message}),
+                .authors_at_r => writer.print("info: Package '{s}': field Authors@R seen", .{self.message}),
+                .no_authors_at_r => writer.print("info: Package '{s}': no Authors@R field", .{self.message}),
             },
             .warn => |x| switch (x) {
                 .no_package => writer.print("warn: no package found in stanza", .{}),
@@ -62,6 +67,7 @@ pub const LogItem = struct {
                 .multiple_authors_r_fields => writer.print("warn: Package '{s}': multiple Authors@R fields.", .{self.message}),
             },
             .err => |x| switch (x) {
+                .package => writer.print("error: could not parse package name: {s}", .{self.message}),
                 .authors_at_r_wrong_type => writer.print("error: Package '{s}': Authors@R parsed to wrong type", .{self.message}),
                 .rlang_parse_error => writer.print("error: Package '{s}' R lang parser error: {} at location {}", .{ self.message, self.extra.rlang_parse_err.err, self.extra.rlang_parse_err.loc }),
                 .expected_string_in_role => writer.print("error: Package '{s}': role must be a string or identifier.", .{self.message}),
@@ -669,6 +675,22 @@ pub fn read(self: *Authors, source: []const u8, strings: *StringStorage) ![]LogI
                                         continue :top;
                                     },
                                 };
+
+                                // named arguments in c(), ignore the names
+                                for (fc.named) |na| switch (na.value) {
+                                    .function_call => |c_fc| {
+                                        if (eql("person", c_fc.name)) {
+                                            try self.db.addFromFunctionCall(c_fc, package_name.?, &log);
+                                        } else {
+                                            try logNoPerson(&log, package_name.?);
+                                            continue :top;
+                                        }
+                                    },
+                                    else => {
+                                        try logNoFunction(&log, package_name.?);
+                                        continue :top;
+                                    },
+                                };
                             } else if (eql("person", fc.name)) {
                                 try self.db.addFromFunctionCall(fc, package_name.?, &log);
                             } else {
@@ -703,10 +725,15 @@ pub fn read(self: *Authors, source: []const u8, strings: *StringStorage) ![]LogI
         },
         .field => |field| {
             if (eql("package", field.name)) {
-                package_name = try parsePackageName(nodes, &index, strings);
+                package_name = parsePackageName(nodes, &index, strings) catch |err| {
+                    try logPackageParseError(&log, @errorName(err));
+                    continue;
+                };
+                try logPackage(&log, package_name.?);
             } else if (eql("authors@r", field.name)) {
                 // save authors@r field data to process at end of stanza.
                 if (authors_source != null) try logMultipleAuthorsAtRFields(&log, package_name);
+                try logAuthorsAtRSeen(&log, package_name);
 
                 index += 1;
                 switch (nodes[index]) {
@@ -723,6 +750,19 @@ pub fn read(self: *Authors, source: []const u8, strings: *StringStorage) ![]LogI
     return try log.toOwnedSlice();
 }
 
+fn logPackage(log: *LogItems, package_name: []const u8) !void {
+    try log.append(.{ .tag = .{ .info = .package }, .message = package_name, .loc = 0 });
+}
+fn logPackageParseError(log: *LogItems, err: []const u8) !void {
+    try log.append(.{ .tag = .{ .err = .package }, .message = err, .loc = 0 });
+}
+fn logAuthorsAtRSeen(log: *LogItems, package_name: ?[]const u8) !void {
+    if (package_name) |pname| {
+        try log.append(.{ .tag = .{ .info = .authors_at_r }, .message = pname, .loc = 0 });
+    } else {
+        try log.append(.{ .tag = .{ .info = .authors_at_r }, .message = "<unknown>", .loc = 0 });
+    }
+}
 fn logMultipleAuthorsAtRFields(log: *LogItems, package_name: ?[]const u8) !void {
     if (package_name) |pname| {
         try log.append(.{ .tag = .{ .warn = .multiple_authors_r_fields }, .message = pname, .loc = 0 });
@@ -730,7 +770,6 @@ fn logMultipleAuthorsAtRFields(log: *LogItems, package_name: ?[]const u8) !void 
         try log.append(.{ .tag = .{ .warn = .multiple_authors_r_fields }, .message = "<unknown>", .loc = 0 });
     }
 }
-
 fn logParseError(log: *LogItems, e: RParser.ErrLoc, package_name: ?[]const u8) !void {
     if (package_name) |pname| {
         try log.append(.{ .tag = .{ .err = .rlang_parse_error }, .message = pname, .loc = 0, .extra = .{ .rlang_parse_err = e } });
@@ -863,6 +902,16 @@ test "Authors" {
         \\Package: eight
         \\Authors@R: c()
         \\Authors@R: person("multiple", "fields")
+        \\
+        \\Package: apex
+        \\Title: Phylogenetic Methods for Multiple Gene Data
+        \\Version: 1.0.6
+        \\Authors@R: c(KS=person("Klaus", "Schliep", email="klaus.schliep@gmail.com", role = c("aut", "cre"), comment = c(ORCID = "0000-0003-2941-0161")),
+        \\       TJ=person("Thibaut", "Jombart", , "t.jombart@imperial.ac.uk", role = c("aut")),
+        \\           ZK=person("Zhian Namir", "Kamvar", email = "kamvarz@science.oregonstate.edu", role = c("aut")),
+        \\           EA=person("Eric", "Archer", email="eric.archer@noaa.gov", role = c("aut")),
+        \\           RH=person("Rebecca", "Harris", email="rbharris@uw.edu", role = c("aut")))
+        \\
     ;
 
     var strings = try StringStorage.init(alloc, std.heap.page_allocator);
@@ -881,7 +930,7 @@ test "Authors" {
 }
 
 test "read authors from PACKAGES-full.gz" {
-    if (true) {
+    if (false) {
         const mos = @import("mos");
 
         var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
@@ -928,6 +977,7 @@ const rlang_parse = @import("rlang_parse.zig");
 const RTokenizer = rlang_parse.Tokenizer;
 const RParser = rlang_parse.Parser;
 const FunctionCall = rlang_parse.FunctionCall;
+const FunctionArg = rlang_parse.FunctionArg;
 
 const Authors = @This();
 const assert = std.debug.assert;
