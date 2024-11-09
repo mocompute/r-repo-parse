@@ -9,15 +9,18 @@ const Options = .{
     .{ "db", 0 }, // suppress -d option
     .{ "force", false },
     .{ "help", false },
+    .{ "info", false },
+    .{ "packages", false, 0 },
     .{"parse"},
     .{ "sql", false, 0 },
     .{ "verbose", false },
 };
 
 const DB_FILE = "parse-authors.db";
-var _verbose = false;
 var _force = false;
+var _info = false;
 var _sql = false;
+var _verbose = false;
 
 const usage =
     \\Usage: parse-authors [options] <packages-file>
@@ -30,6 +33,9 @@ const usage =
     \\  --db <file>            Change default SQLite3 db filename [parse-authors.db]
     \\  --force, -f            Overwrite existing db file if it exists
     \\  --help, -h             Display help
+    \\  --info, -i             Display info messages to stderr (in addition to warn and error).
+    \\                         Only effective if --verbose is set.
+    \\  --packages             Print names of packages with valid Authors@R fields to stdout
     \\  --parse, -p <string>   Instead of parsing a file, parse the argument
     \\  --sql                  For --parse, output SQL instead of plain text.
     \\                         Requires 'sqlite3' on path.
@@ -56,14 +62,17 @@ pub fn main() !void {
         std.debug.print("{s}", .{usage});
         std.process.exit(0);
     }
-    if (options.present("verbose")) {
-        _verbose = true;
-    }
     if (options.present("force")) {
         _force = true;
     }
+    if (options.present("info")) {
+        _info = true;
+    }
     if (options.present("sql")) {
         _sql = true;
+    }
+    if (options.present("verbose")) {
+        _verbose = true;
     }
 
     // set up Authors
@@ -134,6 +143,14 @@ pub fn main() !void {
     timer.reset();
     try dump_authors_db(conn, &authors.db);
     log("Dumping database took {}ms\n", .{@divFloor(timer.lap(), 1_000_000)});
+
+    // dump package names
+    if (options.present("packages")) {
+        const stdout = std.io.getStdOut().writer();
+        for (authors.db.package_names.data.items) |name| {
+            try stdout.print("{s}\n", .{name});
+        }
+    }
 }
 
 fn do_parse(alloc: std.mem.Allocator, authors: *Authors, strings: *StringStorage, in: []const u8) !void {
@@ -148,7 +165,7 @@ fn do_parse(alloc: std.mem.Allocator, authors: *Authors, strings: *StringStorage
 
     for (parse_log) |x| switch (x.tag) {
         .warn, .err => log("{}\n", .{x}),
-        .info => {},
+        .info => if (_info) log("{}\n", .{x}),
     };
 
     if (_sql) {
@@ -275,7 +292,7 @@ fn read_file(alloc: std.mem.Allocator, authors: *Authors, strings: *StringStorag
 
         for (parse_log) |x| switch (x.tag) {
             .warn, .err => log("{}\n", .{x}),
-            .info => {},
+            .info => if (_info) log("{}\n", .{x}),
         };
     } else {
         std.debug.print("error: could not read '{s}'\n", .{path});
