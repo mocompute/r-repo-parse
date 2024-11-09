@@ -61,17 +61,17 @@ pub const LogItem = struct {
             },
             .warn => |x| switch (x) {
                 .no_package => writer.print("warn: no package found in stanza", .{}),
-                .no_function => writer.print("warn: Package '{s}': expected c() or person() function call in Authors@R field", .{self.message}),
-                .no_person => writer.print("warn: Package '{s}': expected person() in Authors@R field", .{self.message}),
-                .unknown_role_code => writer.print("warn: Package '{s}': unknown role code '{s}'", .{ self.message, self.extra.string }),
-                .multiple_authors_r_fields => writer.print("warn: Package '{s}': multiple Authors@R fields.", .{self.message}),
+                .no_function => writer.print("warn: Package '{s}': expected c() or person() function call in Authors@R field (loc {})", .{ self.message, self.loc }),
+                .no_person => writer.print("warn: Package '{s}': expected person() in Authors@R field (loc {})", .{ self.message, self.loc }),
+                .unknown_role_code => writer.print("warn: Package '{s}': unknown role code '{s}' (loc {})", .{ self.message, self.extra.string, self.loc }),
+                .multiple_authors_r_fields => writer.print("warn: Package '{s}': multiple Authors@R fields (loc {})", .{ self.message, self.loc }),
             },
             .err => |x| switch (x) {
-                .package => writer.print("error: could not parse package name: {s}", .{self.message}),
-                .authors_at_r_wrong_type => writer.print("error: Package '{s}': Authors@R parsed to wrong type", .{self.message}),
+                .package => writer.print("error: could not parse package name: {s} (loc {})", .{ self.message, self.loc }),
+                .authors_at_r_wrong_type => writer.print("error: Package '{s}': Authors@R parsed to wrong type (loc {})", .{ self.message, self.loc }),
                 .rlang_parse_error => writer.print("error: Package '{s}' R lang parser error: {} at location {}", .{ self.message, self.extra.rlang_parse_err.err, self.loc }),
-                .expected_string_in_role => writer.print("error: Package '{s}': role must be a string or identifier.", .{self.message}),
-                .named_argument_in_role => writer.print("error: Package '{s}': named argument not supported in role vector.", .{self.message}),
+                .expected_string_in_role => writer.print("error: Package '{s}': role must be a string or identifier (loc {})", .{ self.message, self.loc }),
+                .named_argument_in_role => writer.print("error: Package '{s}': named argument not supported in role vector (loc {})", .{ self.message, self.loc }),
             },
         };
     }
@@ -172,7 +172,7 @@ pub const AuthorsDB = struct {
     }
 
     /// Leaky, prefer to use an ArenaAllocator.
-    pub fn addFromFunctionCall(self: *AuthorsDB, fc: FunctionCall, package_name: []const u8, log: *LogItems) !void {
+    pub fn addFromFunctionCall(self: *AuthorsDB, fc: FunctionCall, loc: usize, package_name: []const u8, log: *LogItems) !void {
         assert(std.mem.eql(u8, "person", fc.name));
         const eql = std.ascii.eqlIgnoreCase;
 
@@ -319,7 +319,7 @@ pub const AuthorsDB = struct {
                 switch (na.value) {
                     .string, .identifier => |s| switch (Role.fromString(s)) {
                         .unknown => {
-                            try logUnknownRole(log, package_name, s);
+                            try logUnknownRole(log, loc, package_name, s);
                             try self.putExtraRole(package_id, person_id, s);
                         },
                         else => |code| try self.putNewRole(package_id, person_id, attr_id, code),
@@ -331,19 +331,19 @@ pub const AuthorsDB = struct {
                                 switch (fa) {
                                     .string, .identifier => |s| switch (Role.fromString(s)) {
                                         .unknown => {
-                                            try logUnknownRole(log, package_name, s);
+                                            try logUnknownRole(log, loc, package_name, s);
                                             try self.putExtraRole(package_id, person_id, s);
                                         },
                                         else => |code| try self.putNewRole(package_id, person_id, attr_id, code),
                                     },
                                     else => {
-                                        try logExpectedStringInRole(log, package_name);
+                                        try logExpectedStringInRole(log, loc, package_name);
                                         continue;
                                     },
                                 }
                             }
                             for (role_fc.named) |_| {
-                                try logNamedArgumentInRole(log, package_name);
+                                try logNamedArgumentInRole(log, loc, package_name);
                                 continue;
                             }
                         }
@@ -664,14 +664,14 @@ pub fn read(self: *Authors, source: []const u8, strings: *StringStorage) ![]LogI
                                 for (fc.positional) |fa| switch (fa) {
                                     .function_call => |c_fc| {
                                         if (std.mem.eql(u8, "person", c_fc.name)) {
-                                            try self.db.addFromFunctionCall(c_fc, package_name.?, &log);
+                                            try self.db.addFromFunctionCall(c_fc, ok.loc, package_name.?, &log);
                                         } else {
-                                            try logNoPerson(&log, package_name.?);
+                                            try logNoPerson(&log, ok.loc, package_name.?);
                                             continue :top;
                                         }
                                     },
                                     else => {
-                                        try logNoFunction(&log, package_name.?);
+                                        try logNoFunction(&log, ok.loc, package_name.?);
                                         continue :top;
                                     },
                                 };
@@ -680,25 +680,25 @@ pub fn read(self: *Authors, source: []const u8, strings: *StringStorage) ![]LogI
                                 for (fc.named) |na| switch (na.value) {
                                     .function_call => |c_fc| {
                                         if (std.mem.eql(u8, "person", c_fc.name)) {
-                                            try self.db.addFromFunctionCall(c_fc, package_name.?, &log);
+                                            try self.db.addFromFunctionCall(c_fc, ok.loc, package_name.?, &log);
                                         } else {
-                                            try logNoPerson(&log, package_name.?);
+                                            try logNoPerson(&log, ok.loc, package_name.?);
                                             continue :top;
                                         }
                                     },
                                     else => {
-                                        try logNoFunction(&log, package_name.?);
+                                        try logNoFunction(&log, ok.loc, package_name.?);
                                         continue :top;
                                     },
                                 };
                             } else if (std.mem.eql(u8, "person", fc.name)) {
-                                try self.db.addFromFunctionCall(fc, package_name.?, &log);
+                                try self.db.addFromFunctionCall(fc, ok.loc, package_name.?, &log);
                             } else {
-                                try logNoFunction(&log, package_name.?);
+                                try logNoFunction(&log, ok.loc, package_name.?);
                             }
                         },
                         .function_arg => {
-                            try logNoFunction(&log, package_name.?);
+                            try logNoFunction(&log, ok.loc, package_name.?);
                         },
                     },
                     .err => |e| {
@@ -770,17 +770,17 @@ fn logParseError(log: *LogItems, e: RParser.ErrLoc, package_name: ?[]const u8) !
         try log.append(.{ .tag = .{ .err = .rlang_parse_error }, .message = "<unknown>", .loc = e.loc, .extra = .{ .rlang_parse_err = e } });
     }
 }
-fn logUnknownRole(log: *LogItems, package_name: []const u8, role: []const u8) !void {
-    try log.append(.{ .tag = .{ .warn = .unknown_role_code }, .message = package_name, .loc = 0, .extra = .{ .string = role } });
+fn logUnknownRole(log: *LogItems, loc: usize, package_name: []const u8, role: []const u8) !void {
+    try log.append(.{ .tag = .{ .warn = .unknown_role_code }, .message = package_name, .loc = loc, .extra = .{ .string = role } });
 }
 fn logNoAuthorsAtR(log: *LogItems, package_name: []const u8) !void {
     try log.append(.{ .tag = .{ .info = .no_authors_at_r }, .message = package_name, .loc = 0 });
 }
-fn logNoFunction(log: *LogItems, package_name: []const u8) !void {
-    try log.append(.{ .tag = .{ .warn = .no_function }, .message = package_name, .loc = 0 });
+fn logNoFunction(log: *LogItems, loc: usize, package_name: []const u8) !void {
+    try log.append(.{ .tag = .{ .warn = .no_function }, .message = package_name, .loc = loc });
 }
-fn logNoPerson(log: *LogItems, package_name: []const u8) !void {
-    try log.append(.{ .tag = .{ .warn = .no_person }, .message = package_name, .loc = 0 });
+fn logNoPerson(log: *LogItems, loc: usize, package_name: []const u8) !void {
+    try log.append(.{ .tag = .{ .warn = .no_person }, .message = package_name, .loc = loc });
 }
 fn logNoPackage(log: *LogItems) !void {
     try log.append(.{ .tag = .{ .warn = .no_package }, .message = "", .loc = 0 });
@@ -792,11 +792,11 @@ fn logAuthorsAtRWrongType(log: *LogItems, package_name: ?[]const u8) !void {
         try log.append(.{ .tag = .{ .err = .authors_at_r_wrong_type }, .message = "<unknown>", .loc = 0 });
     }
 }
-fn logExpectedStringInRole(log: *LogItems, package_name: []const u8) !void {
-    try log.append(.{ .tag = .{ .err = .expected_string_in_role }, .message = package_name });
+fn logExpectedStringInRole(log: *LogItems, loc: usize, package_name: []const u8) !void {
+    try log.append(.{ .tag = .{ .err = .expected_string_in_role }, .message = package_name, .loc = loc });
 }
-fn logNamedArgumentInRole(log: *LogItems, package_name: []const u8) !void {
-    try log.append(.{ .tag = .{ .err = .named_argument_in_role }, .message = package_name });
+fn logNamedArgumentInRole(log: *LogItems, loc: usize, package_name: []const u8) !void {
+    try log.append(.{ .tag = .{ .err = .named_argument_in_role }, .message = package_name, .loc = loc });
 }
 
 fn parsePackageName(nodes: []Parser.Node, idx: *usize, strings: *StringStorage) ![]const u8 {
