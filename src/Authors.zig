@@ -69,7 +69,7 @@ pub const LogItem = struct {
             .err => |x| switch (x) {
                 .package => writer.print("error: could not parse package name: {s}", .{self.message}),
                 .authors_at_r_wrong_type => writer.print("error: Package '{s}': Authors@R parsed to wrong type", .{self.message}),
-                .rlang_parse_error => writer.print("error: Package '{s}' R lang parser error: {} at location {}", .{ self.message, self.extra.rlang_parse_err.err, self.extra.rlang_parse_err.loc }),
+                .rlang_parse_error => writer.print("error: Package '{s}' R lang parser error: {} at location {}", .{ self.message, self.extra.rlang_parse_err.err, self.loc }),
                 .expected_string_in_role => writer.print("error: Package '{s}': role must be a string or identifier.", .{self.message}),
                 .named_argument_in_role => writer.print("error: Package '{s}': named argument not supported in role vector.", .{self.message}),
             },
@@ -663,7 +663,7 @@ pub fn read(self: *Authors, source: []const u8, strings: *StringStorage) ![]LogI
                             if (std.mem.eql(u8, "c", fc.name)) {
                                 for (fc.positional) |fa| switch (fa) {
                                     .function_call => |c_fc| {
-                                        if (eql("person", c_fc.name)) {
+                                        if (std.mem.eql(u8, "person", c_fc.name)) {
                                             try self.db.addFromFunctionCall(c_fc, package_name.?, &log);
                                         } else {
                                             try logNoPerson(&log, package_name.?);
@@ -679,7 +679,7 @@ pub fn read(self: *Authors, source: []const u8, strings: *StringStorage) ![]LogI
                                 // named arguments in c(), ignore the names
                                 for (fc.named) |na| switch (na.value) {
                                     .function_call => |c_fc| {
-                                        if (eql("person", c_fc.name)) {
+                                        if (std.mem.eql(u8, "person", c_fc.name)) {
                                             try self.db.addFromFunctionCall(c_fc, package_name.?, &log);
                                         } else {
                                             try logNoPerson(&log, package_name.?);
@@ -691,25 +691,18 @@ pub fn read(self: *Authors, source: []const u8, strings: *StringStorage) ![]LogI
                                         continue :top;
                                     },
                                 };
-                            } else if (eql("person", fc.name)) {
+                            } else if (std.mem.eql(u8, "person", fc.name)) {
                                 try self.db.addFromFunctionCall(fc, package_name.?, &log);
                             } else {
                                 try logNoFunction(&log, package_name.?);
-                                continue :top;
                             }
                         },
                         .function_arg => {
                             try logNoFunction(&log, package_name.?);
-                            // skip stanza and continue
-                            while (true) switch (nodes[index]) {
-                                .stanza_end, .eof => continue :top,
-                                else => index += 1,
-                            };
                         },
                     },
                     .err => |e| {
                         try logParseError(&log, e, package_name);
-                        return error.RParseError;
                     },
                 }
             } else if (package_name) |pname| {
@@ -772,9 +765,9 @@ fn logMultipleAuthorsAtRFields(log: *LogItems, package_name: ?[]const u8) !void 
 }
 fn logParseError(log: *LogItems, e: RParser.ErrLoc, package_name: ?[]const u8) !void {
     if (package_name) |pname| {
-        try log.append(.{ .tag = .{ .err = .rlang_parse_error }, .message = pname, .loc = 0, .extra = .{ .rlang_parse_err = e } });
+        try log.append(.{ .tag = .{ .err = .rlang_parse_error }, .message = pname, .loc = e.loc, .extra = .{ .rlang_parse_err = e } });
     } else {
-        try log.append(.{ .tag = .{ .err = .rlang_parse_error }, .message = "<unknown>", .loc = 0, .extra = .{ .rlang_parse_err = e } });
+        try log.append(.{ .tag = .{ .err = .rlang_parse_error }, .message = "<unknown>", .loc = e.loc, .extra = .{ .rlang_parse_err = e } });
     }
 }
 fn logUnknownRole(log: *LogItems, package_name: []const u8, role: []const u8) !void {
@@ -911,6 +904,35 @@ test "Authors" {
         \\           ZK=person("Zhian Namir", "Kamvar", email = "kamvarz@science.oregonstate.edu", role = c("aut")),
         \\           EA=person("Eric", "Archer", email="eric.archer@noaa.gov", role = c("aut")),
         \\           RH=person("Rebecca", "Harris", email="rbharris@uw.edu", role = c("aut")))
+        \\
+    ;
+
+    var strings = try StringStorage.init(alloc, std.heap.page_allocator);
+    defer strings.deinit();
+
+    var authors = Authors.init(alloc);
+    defer authors.deinit();
+
+    const log = try authors.read(source, &strings);
+
+    for (log) |x| switch (x.tag) {
+        .warn, .err => std.debug.print("{}\n", .{x}),
+        .info => {},
+    };
+    authors.db.debugPrint();
+}
+
+test "logging" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    const source =
+        \\Package: parse-error
+        \\Authors@R: c(')
+        \\
+        \\Package: fun-err
+        \\Authors@R: x()
         \\
     ;
 
