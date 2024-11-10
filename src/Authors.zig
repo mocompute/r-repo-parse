@@ -692,52 +692,26 @@ pub fn read(self: *Authors, source: []const u8, strings: *StringStorage) ![]LogI
 
                 switch (try rparser.next()) {
                     .ok => |ok| switch (ok.node) {
-                        .function_call => |fc| {
-                            // outer function can be c() or person()
-                            if (std.mem.eql(u8, "c", fc.name)) {
-                                for (fc.positional) |fa| switch (fa) {
-                                    .function_call => |c_fc| {
-                                        if (std.mem.eql(u8, "person", c_fc.name)) {
-                                            try self.db.addFromFunctionCall(c_fc, ok.loc, package_name.?, &log);
-                                        } else {
-                                            try logWarn(&log, .expected_person, ok.loc, package_name.?);
-                                            continue :top;
-                                        }
-                                    },
-                                    else => {
-                                        try logWarn(&log, .expected_function, ok.loc, package_name.?);
-                                        continue :top;
-                                    },
-                                };
+                        .function_call => |fc|
+                        // outer function can be c() or person()
+                        if (std.mem.eql(u8, "c", fc.name)) {
+                            for (fc.positional) |fa|
+                                if (try self.outer_c_argument(fa, ok.loc, package_name.?, &log))
+                                    continue :top;
 
-                                // named arguments in c(), ignore the names
-                                for (fc.named) |na| switch (na.value) {
-                                    .function_call => |c_fc| {
-                                        if (std.mem.eql(u8, "person", c_fc.name)) {
-                                            try self.db.addFromFunctionCall(c_fc, ok.loc, package_name.?, &log);
-                                        } else {
-                                            try logWarn(&log, .expected_person, ok.loc, package_name.?);
-                                            continue :top;
-                                        }
-                                    },
-                                    else => {
-                                        try logWarn(&log, .expected_function, ok.loc, package_name.?);
-                                        continue :top;
-                                    },
-                                };
-                            } else if (std.mem.eql(u8, "person", fc.name)) {
-                                try self.db.addFromFunctionCall(fc, ok.loc, package_name.?, &log);
-                            } else {
-                                try logWarn(&log, .expected_function, ok.loc, package_name.?);
-                            }
-                        },
-                        .function_arg => {
+                            // named arguments in c(), ignore the names
+                            for (fc.named) |na|
+                                if (try self.outer_c_argument(na.value, ok.loc, package_name.?, &log))
+                                    continue :top;
+                        } else if (std.mem.eql(u8, "person", fc.name)) {
+                            try self.db.addFromFunctionCall(fc, ok.loc, package_name.?, &log);
+                        } else {
                             try logWarn(&log, .expected_function, ok.loc, package_name.?);
                         },
+
+                        .function_arg => try logWarn(&log, .expected_function, ok.loc, package_name.?),
                     },
-                    .err => |e| {
-                        try logParseError(&log, e, package_name);
-                    },
+                    .err => |e| try logParseError(&log, e, package_name),
                 }
             } else if (package_name) |pname| {
                 try logInfo(&log, .no_authors_at_r, 0, pname);
@@ -750,31 +724,48 @@ pub fn read(self: *Authors, source: []const u8, strings: *StringStorage) ![]LogI
             package_name = null;
             authors_source = null;
         },
-        .field => |field| {
-            if (eql("package", field.name)) {
-                package_name = parsePackageName(nodes, &index, strings) catch |err| {
-                    try logErr(&log, .package, 0, @errorName(err));
-                    continue;
-                };
-                try logInfo(&log, .package, 0, package_name.?);
-            } else if (eql("authors@r", field.name)) {
-                // save authors@r field data to process at end of stanza.
-                if (authors_source != null) try logWarn(&log, .multiple_authors_r_fields, 0, package_name orelse "<unknown>");
-                try logInfo(&log, .authors_at_r, 0, package_name orelse "<unknown>");
+        .field => |field| if (eql("package", field.name)) {
+            package_name = parsePackageName(nodes, &index, strings) catch |err| {
+                try logErr(&log, .package, 0, @errorName(err));
+                continue;
+            };
+            try logInfo(&log, .package, 0, package_name.?);
+        } else if (eql("authors@r", field.name)) {
+            // save authors@r field data to process at end of stanza.
+            if (authors_source != null) try logWarn(&log, .multiple_authors_r_fields, 0, package_name orelse "<unknown>");
+            try logInfo(&log, .authors_at_r, 0, package_name orelse "<unknown>");
 
-                index += 1;
-                switch (nodes[index]) {
-                    .string_node => |s| authors_source = s.value,
-                    else => {
-                        try logErr(&log, .authors_at_r_wrong_type, 0, package_name orelse "<unknown>");
-                        continue;
-                    },
-                }
+            index += 1;
+            switch (nodes[index]) {
+                .string_node => |s| authors_source = s.value,
+                else => {
+                    try logErr(&log, .authors_at_r_wrong_type, 0, package_name orelse "<unknown>");
+                    continue;
+                },
             }
         },
         else => continue,
     };
     return try log.toOwnedSlice();
+}
+
+/// Returns true if rest of stanza should be skipped
+fn outer_c_argument(self: *Authors, fa: FunctionArg, loc: usize, package_name: []const u8, log: *LogItems) !bool {
+    switch (fa) {
+        .function_call => |c_fc| {
+            if (std.mem.eql(u8, "person", c_fc.name)) {
+                try self.db.addFromFunctionCall(c_fc, loc, package_name, log);
+            } else {
+                try logWarn(log, .expected_person, loc, package_name);
+                return true;
+            }
+        },
+        else => {
+            try logWarn(log, .expected_function, loc, package_name);
+            return true;
+        },
+    }
+    return false;
 }
 
 fn logParseError(log: *LogItems, e: RParser.ErrLoc, package_name: ?[]const u8) !void {
