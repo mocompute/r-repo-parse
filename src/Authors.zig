@@ -19,26 +19,31 @@ alloc: Allocator,
 db: AuthorsDB,
 
 pub const LogType = enum { info, warn, err };
+pub const LogInfoTag = enum {
+    package,
+    authors_at_r,
+    no_authors_at_r,
+};
+pub const LogWarnTag = enum {
+    no_package,
+    expected_function,
+    expected_person,
+    unknown_role_code,
+    multiple_authors_r_fields,
+};
+pub const LogErrTag = enum {
+    package,
+    authors_at_r_wrong_type,
+    rlang_parse_error,
+    expected_string,
+    expected_string_or_identifier,
+    named_argument_in_role,
+    unsupported_function_call,
+};
 pub const LogTag = union(LogType) {
-    info: enum {
-        package,
-        authors_at_r,
-        no_authors_at_r,
-    },
-    warn: enum {
-        no_package,
-        no_function,
-        no_person,
-        unknown_role_code,
-        multiple_authors_r_fields,
-    },
-    err: enum {
-        package,
-        authors_at_r_wrong_type,
-        rlang_parse_error,
-        expected_string_in_role,
-        named_argument_in_role,
-    },
+    info: LogInfoTag,
+    warn: LogWarnTag,
+    err: LogErrTag,
 };
 pub const LogItem = struct {
     message: []const u8 = "",
@@ -61,8 +66,8 @@ pub const LogItem = struct {
             },
             .warn => |x| switch (x) {
                 .no_package => writer.print("warn: no package found in stanza", .{}),
-                .no_function => writer.print("warn: Package '{s}': expected c() or person() function call in Authors@R field (loc {})", .{ self.message, self.loc }),
-                .no_person => writer.print("warn: Package '{s}': expected person() in Authors@R field (loc {})", .{ self.message, self.loc }),
+                .expected_function => writer.print("warn: Package '{s}': expected c() or person() function call in Authors@R field (loc {})", .{ self.message, self.loc }),
+                .expected_person => writer.print("warn: Package '{s}': expected person() in Authors@R field (loc {})", .{ self.message, self.loc }),
                 .unknown_role_code => writer.print("warn: Package '{s}': unknown role code '{s}' (loc {})", .{ self.message, self.extra.string, self.loc }),
                 .multiple_authors_r_fields => writer.print("warn: Package '{s}': multiple Authors@R fields (loc {})", .{ self.message, self.loc }),
             },
@@ -70,8 +75,10 @@ pub const LogItem = struct {
                 .package => writer.print("error: could not parse package name: {s} (loc {})", .{ self.message, self.loc }),
                 .authors_at_r_wrong_type => writer.print("error: Package '{s}': Authors@R parsed to wrong type (loc {})", .{ self.message, self.loc }),
                 .rlang_parse_error => writer.print("error: Package '{s}' R lang parser error: {} at location {}", .{ self.message, self.extra.rlang_parse_err.err, self.loc }),
-                .expected_string_in_role => writer.print("error: Package '{s}': role must be a string or identifier (loc {})", .{ self.message, self.loc }),
+                .expected_string => writer.print("error: Package '{s}': expected string (loc {})", .{ self.message, self.loc }),
+                .expected_string_or_identifier => writer.print("error: Package '{s}': expected string or identifier (loc {})", .{ self.message, self.loc }),
                 .named_argument_in_role => writer.print("error: Package '{s}': named argument not supported in role vector (loc {})", .{ self.message, self.loc }),
+                .unsupported_function_call => writer.print("error: Package '{s}': unsupported function call (loc {})", .{ self.message, self.loc }),
             },
         };
     }
@@ -261,7 +268,7 @@ pub const AuthorsDB = struct {
             }
         } // positional arguments
 
-        for (fc.named) |na| {
+        top: for (fc.named) |na| {
             var attr_id: AttributeId = undefined;
 
             // person (given = NULL, family = NULL, middle = NULL, email = NULL,
@@ -291,20 +298,20 @@ pub const AuthorsDB = struct {
                                             for (cfc.positional) |fa| switch (fa) {
                                                 .string => |s| try self.putNewString(package_id, person_id, attr_id, s),
                                                 else => {
-                                                    std.debug.print("ERROR: package {s}: expected string in comment function argument.\n", .{package_name});
-                                                    unreachable;
+                                                    try logErr(log, .expected_string, loc, package_name);
+                                                    continue :top;
                                                 },
                                             };
                                             for (cfc.named) |cna| switch (cna.value) {
                                                 .string => |s| try self.putNewString(package_id, person_id, attr_id, s),
                                                 else => {
-                                                    std.debug.print("ERROR: package {s}: expected string in comment function named argument.\n", .{package_name});
-                                                    unreachable;
+                                                    try logErr(log, .expected_string, loc, package_name);
+                                                    continue :top;
                                                 },
                                             };
                                         } else {
-                                            std.debug.print("ERROR: package {s}: unsupported function in comment.\n", .{package_name});
-                                            unreachable;
+                                            try logErr(log, .unsupported_function_call, loc, package_name);
+                                            continue :top;
                                         }
                                     },
                                     .null => {},
@@ -337,13 +344,13 @@ pub const AuthorsDB = struct {
                                         else => |code| try self.putNewRole(package_id, person_id, attr_id, code),
                                     },
                                     else => {
-                                        try logExpectedStringInRole(log, loc, package_name);
+                                        try logErr(log, .expected_string_or_identifier, loc, package_name);
                                         continue;
                                     },
                                 }
                             }
                             for (role_fc.named) |_| {
-                                try logNamedArgumentInRole(log, loc, package_name);
+                                try logErr(log, .named_argument_in_role, loc, package_name);
                                 continue;
                             }
                         }
@@ -351,34 +358,9 @@ pub const AuthorsDB = struct {
                     .null => {},
                 }
             } else {
-                // special case: named arguments can be shortest
-                // unique substring of defined arguments in person():
-
-                // person (given = NULL, family = NULL, middle = NULL, email = NULL,
-                //     role = NULL, comment = NULL, first = NULL, last = NULL)
-                const mapped_name = b: {
-                    const startsWith = std.mem.startsWith;
-                    if (startsWith(u8, na.name, "g")) {
-                        break :b "given";
-                    } else if (startsWith(u8, na.name, "fa")) {
-                        break :b "family";
-                    } else if (startsWith(u8, na.name, "m")) {
-                        break :b "middle";
-                    } else if (startsWith(u8, na.name, "e")) {
-                        break :b "email";
-                    } else if (startsWith(u8, na.name, "r")) {
-                        break :b "role";
-                    } else if (startsWith(u8, na.name, "c")) {
-                        break :b "comment";
-                    } else if (startsWith(u8, na.name, "fi")) {
-                        break :b "first";
-                    } else if (startsWith(u8, na.name, "l")) {
-                        break :b "last";
-                    } else {
-                        break :b na.name;
-                    }
-                };
-
+                // named arguments can be shortest unique substring of
+                // defined arguments in person():
+                const mapped_name = map_named_argument(na.name);
                 attr_id = try self.attributeId(mapped_name);
                 switch (na.value) {
                     .string => |s| try self.putNewString(package_id, person_id, attr_id, s),
@@ -419,6 +401,30 @@ pub const AuthorsDB = struct {
                 }
             }
         } // named arguments
+    }
+
+    fn map_named_argument(name: []const u8) []const u8 {
+        // person (given = NULL, family = NULL, middle = NULL, email = NULL,
+        //     role = NULL, comment = NULL, first = NULL, last = NULL)
+        const startsWith = std.mem.startsWith;
+        if (startsWith(u8, name, "g")) {
+            return "given";
+        } else if (startsWith(u8, name, "fa")) {
+            return "family";
+        } else if (startsWith(u8, name, "m")) {
+            return "middle";
+        } else if (startsWith(u8, name, "e")) {
+            return "email";
+        } else if (startsWith(u8, name, "r")) {
+            return "role";
+        } else if (startsWith(u8, name, "c")) {
+            return "comment";
+        } else if (startsWith(u8, name, "fi")) {
+            return "first";
+        } else if (startsWith(u8, name, "l")) {
+            return "last";
+        }
+        return name;
     }
 
     fn attributeId(self: *AuthorsDB, name: []const u8) !AttributeId {
@@ -694,12 +700,12 @@ pub fn read(self: *Authors, source: []const u8, strings: *StringStorage) ![]LogI
                                         if (std.mem.eql(u8, "person", c_fc.name)) {
                                             try self.db.addFromFunctionCall(c_fc, ok.loc, package_name.?, &log);
                                         } else {
-                                            try logNoPerson(&log, ok.loc, package_name.?);
+                                            try logWarn(&log, .expected_person, ok.loc, package_name.?);
                                             continue :top;
                                         }
                                     },
                                     else => {
-                                        try logNoFunction(&log, ok.loc, package_name.?);
+                                        try logWarn(&log, .expected_function, ok.loc, package_name.?);
                                         continue :top;
                                     },
                                 };
@@ -710,23 +716,23 @@ pub fn read(self: *Authors, source: []const u8, strings: *StringStorage) ![]LogI
                                         if (std.mem.eql(u8, "person", c_fc.name)) {
                                             try self.db.addFromFunctionCall(c_fc, ok.loc, package_name.?, &log);
                                         } else {
-                                            try logNoPerson(&log, ok.loc, package_name.?);
+                                            try logWarn(&log, .expected_person, ok.loc, package_name.?);
                                             continue :top;
                                         }
                                     },
                                     else => {
-                                        try logNoFunction(&log, ok.loc, package_name.?);
+                                        try logWarn(&log, .expected_function, ok.loc, package_name.?);
                                         continue :top;
                                     },
                                 };
                             } else if (std.mem.eql(u8, "person", fc.name)) {
                                 try self.db.addFromFunctionCall(fc, ok.loc, package_name.?, &log);
                             } else {
-                                try logNoFunction(&log, ok.loc, package_name.?);
+                                try logWarn(&log, .expected_function, ok.loc, package_name.?);
                             }
                         },
                         .function_arg => {
-                            try logNoFunction(&log, ok.loc, package_name.?);
+                            try logWarn(&log, .expected_function, ok.loc, package_name.?);
                         },
                     },
                     .err => |e| {
@@ -734,9 +740,9 @@ pub fn read(self: *Authors, source: []const u8, strings: *StringStorage) ![]LogI
                     },
                 }
             } else if (package_name) |pname| {
-                try logNoAuthorsAtR(&log, pname);
+                try logInfo(&log, .no_authors_at_r, 0, pname);
             } else {
-                try logNoPackage(&log);
+                try logWarn(&log, .no_package, 0, "");
             }
 
             // reset package name and authors_source
@@ -747,20 +753,20 @@ pub fn read(self: *Authors, source: []const u8, strings: *StringStorage) ![]LogI
         .field => |field| {
             if (eql("package", field.name)) {
                 package_name = parsePackageName(nodes, &index, strings) catch |err| {
-                    try logPackageParseError(&log, @errorName(err));
+                    try logErr(&log, .package, 0, @errorName(err));
                     continue;
                 };
-                try logPackage(&log, package_name.?);
+                try logInfo(&log, .package, 0, package_name.?);
             } else if (eql("authors@r", field.name)) {
                 // save authors@r field data to process at end of stanza.
-                if (authors_source != null) try logMultipleAuthorsAtRFields(&log, package_name);
-                try logAuthorsAtRSeen(&log, package_name);
+                if (authors_source != null) try logWarn(&log, .multiple_authors_r_fields, 0, package_name orelse "<unknown>");
+                try logInfo(&log, .authors_at_r, 0, package_name orelse "<unknown>");
 
                 index += 1;
                 switch (nodes[index]) {
                     .string_node => |s| authors_source = s.value,
                     else => {
-                        try logAuthorsAtRWrongType(&log, package_name);
+                        try logErr(&log, .authors_at_r_wrong_type, 0, package_name orelse "<unknown>");
                         continue;
                     },
                 }
@@ -771,60 +777,21 @@ pub fn read(self: *Authors, source: []const u8, strings: *StringStorage) ![]LogI
     return try log.toOwnedSlice();
 }
 
-fn logPackage(log: *LogItems, package_name: []const u8) !void {
-    try log.append(.{ .tag = .{ .info = .package }, .message = package_name, .loc = 0 });
-}
-fn logPackageParseError(log: *LogItems, err: []const u8) !void {
-    try log.append(.{ .tag = .{ .err = .package }, .message = err, .loc = 0 });
-}
-fn logAuthorsAtRSeen(log: *LogItems, package_name: ?[]const u8) !void {
-    if (package_name) |pname| {
-        try log.append(.{ .tag = .{ .info = .authors_at_r }, .message = pname, .loc = 0 });
-    } else {
-        try log.append(.{ .tag = .{ .info = .authors_at_r }, .message = "<unknown>", .loc = 0 });
-    }
-}
-fn logMultipleAuthorsAtRFields(log: *LogItems, package_name: ?[]const u8) !void {
-    if (package_name) |pname| {
-        try log.append(.{ .tag = .{ .warn = .multiple_authors_r_fields }, .message = pname, .loc = 0 });
-    } else {
-        try log.append(.{ .tag = .{ .warn = .multiple_authors_r_fields }, .message = "<unknown>", .loc = 0 });
-    }
-}
 fn logParseError(log: *LogItems, e: RParser.ErrLoc, package_name: ?[]const u8) !void {
-    if (package_name) |pname| {
-        try log.append(.{ .tag = .{ .err = .rlang_parse_error }, .message = pname, .loc = e.loc, .extra = .{ .rlang_parse_err = e } });
-    } else {
-        try log.append(.{ .tag = .{ .err = .rlang_parse_error }, .message = "<unknown>", .loc = e.loc, .extra = .{ .rlang_parse_err = e } });
-    }
+    try log.append(.{ .tag = .{ .err = .rlang_parse_error }, .message = package_name orelse "<unknown>", .loc = e.loc, .extra = .{ .rlang_parse_err = e } });
 }
 fn logUnknownRole(log: *LogItems, loc: usize, package_name: []const u8, role: []const u8) !void {
     try log.append(.{ .tag = .{ .warn = .unknown_role_code }, .message = package_name, .loc = loc, .extra = .{ .string = role } });
 }
-fn logNoAuthorsAtR(log: *LogItems, package_name: []const u8) !void {
-    try log.append(.{ .tag = .{ .info = .no_authors_at_r }, .message = package_name, .loc = 0 });
+
+fn logInfo(log: *LogItems, tag: LogInfoTag, loc: usize, package_name: []const u8) !void {
+    try log.append(.{ .tag = .{ .info = tag }, .message = package_name, .loc = loc });
 }
-fn logNoFunction(log: *LogItems, loc: usize, package_name: []const u8) !void {
-    try log.append(.{ .tag = .{ .warn = .no_function }, .message = package_name, .loc = loc });
+fn logWarn(log: *LogItems, tag: LogWarnTag, loc: usize, package_name: []const u8) !void {
+    try log.append(.{ .tag = .{ .warn = tag }, .message = package_name, .loc = loc });
 }
-fn logNoPerson(log: *LogItems, loc: usize, package_name: []const u8) !void {
-    try log.append(.{ .tag = .{ .warn = .no_person }, .message = package_name, .loc = loc });
-}
-fn logNoPackage(log: *LogItems) !void {
-    try log.append(.{ .tag = .{ .warn = .no_package }, .message = "", .loc = 0 });
-}
-fn logAuthorsAtRWrongType(log: *LogItems, package_name: ?[]const u8) !void {
-    if (package_name) |pname| {
-        try log.append(.{ .tag = .{ .err = .authors_at_r_wrong_type }, .message = pname, .loc = 0 });
-    } else {
-        try log.append(.{ .tag = .{ .err = .authors_at_r_wrong_type }, .message = "<unknown>", .loc = 0 });
-    }
-}
-fn logExpectedStringInRole(log: *LogItems, loc: usize, package_name: []const u8) !void {
-    try log.append(.{ .tag = .{ .err = .expected_string_in_role }, .message = package_name, .loc = loc });
-}
-fn logNamedArgumentInRole(log: *LogItems, loc: usize, package_name: []const u8) !void {
-    try log.append(.{ .tag = .{ .err = .named_argument_in_role }, .message = package_name, .loc = loc });
+fn logErr(log: *LogItems, tag: LogErrTag, loc: usize, package_name: []const u8) !void {
+    try log.append(.{ .tag = .{ .err = tag }, .message = package_name, .loc = loc });
 }
 
 fn parsePackageName(nodes: []Parser.Node, idx: *usize, strings: *StringStorage) ![]const u8 {
