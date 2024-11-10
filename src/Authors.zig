@@ -266,7 +266,7 @@ pub const AuthorsDB = struct {
 
             // person (given = NULL, family = NULL, middle = NULL, email = NULL,
             //     role = NULL, comment = NULL, first = NULL, last = NULL)
-            if (eql("comment", na.name)) {
+            if (std.mem.startsWith(u8, na.name, "c")) { // comment
                 attr_id = try self.attributeId("comment");
                 switch (na.value) {
                     .string, .identifier => |s| try self.putNewString(package_id, person_id, attr_id, s), // TODO: permissive
@@ -314,7 +314,7 @@ pub const AuthorsDB = struct {
                     },
                     .null => {},
                 }
-            } else if (eql("role", na.name)) {
+            } else if (std.mem.startsWith(u8, na.name, "r")) { // "role"
                 attr_id = try self.attributeId("role");
                 switch (na.value) {
                     .string, .identifier => |s| switch (Role.fromString(s)) {
@@ -351,7 +351,35 @@ pub const AuthorsDB = struct {
                     .null => {},
                 }
             } else {
-                attr_id = try self.attributeId(na.name);
+                // special case: named arguments can be shortest
+                // unique substring of defined arguments in person():
+
+                // person (given = NULL, family = NULL, middle = NULL, email = NULL,
+                //     role = NULL, comment = NULL, first = NULL, last = NULL)
+                const mapped_name = b: {
+                    const startsWith = std.mem.startsWith;
+                    if (startsWith(u8, na.name, "g")) {
+                        break :b "given";
+                    } else if (startsWith(u8, na.name, "fa")) {
+                        break :b "family";
+                    } else if (startsWith(u8, na.name, "m")) {
+                        break :b "middle";
+                    } else if (startsWith(u8, na.name, "e")) {
+                        break :b "email";
+                    } else if (startsWith(u8, na.name, "r")) {
+                        break :b "role";
+                    } else if (startsWith(u8, na.name, "c")) {
+                        break :b "comment";
+                    } else if (startsWith(u8, na.name, "fi")) {
+                        break :b "first";
+                    } else if (startsWith(u8, na.name, "l")) {
+                        break :b "last";
+                    } else {
+                        break :b na.name;
+                    }
+                };
+
+                attr_id = try self.attributeId(mapped_name);
                 switch (na.value) {
                     .string => |s| try self.putNewString(package_id, person_id, attr_id, s),
                     .identifier => |s| {
@@ -374,7 +402,7 @@ pub const AuthorsDB = struct {
                                         } else {
                                             // make an indexed name and use it
                                             var buf: [512]u8 = undefined;
-                                            const indexed_name = try std.fmt.bufPrint(&buf, "{s}{}", .{ na.name, pos });
+                                            const indexed_name = try std.fmt.bufPrint(&buf, "{s}{}", .{ mapped_name, pos });
                                             const indexed_attr = try self.attributeId(try self.alloc.dupe(u8, indexed_name));
                                             try self.putNewString(package_id, person_id, indexed_attr, s);
                                         }
