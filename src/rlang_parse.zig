@@ -285,7 +285,7 @@ pub const FunctionCall = struct {
     }
 };
 
-const FunctionArg = union(enum) {
+pub const FunctionArg = union(enum) {
     null,
     identifier: []const u8,
     string: []const u8,

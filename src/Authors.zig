@@ -39,6 +39,7 @@ pub const LogErrTag = enum {
     expected_string_or_identifier,
     named_argument_in_role,
     unsupported_function_call,
+    too_many_arguments,
 };
 pub const LogTag = union(LogType) {
     info: LogInfoTag,
@@ -79,6 +80,7 @@ pub const LogItem = struct {
                 .expected_string_or_identifier => writer.print("error: Package '{s}': expected string or identifier (loc {})", .{ self.message, self.loc }),
                 .named_argument_in_role => writer.print("error: Package '{s}': named argument not supported in role vector (loc {})", .{ self.message, self.loc }),
                 .unsupported_function_call => writer.print("error: Package '{s}': unsupported function call (loc {})", .{ self.message, self.loc }),
+                .too_many_arguments => writer.print("error: Package '{s}': too many positional arguments (loc {})", .{ self.message, self.loc }),
             },
         };
     }
@@ -133,20 +135,18 @@ pub const AuthorsDB = struct {
     }
     pub fn debugPrint(self: *const AuthorsDB) void {
         std.debug.print("\nAttributes:\n", .{});
-        for (self.attribute_names.data.items, 0..) |x, id| {
+        for (self.attribute_names.data.items, 0..) |x, id|
             std.debug.print("  {}: {s}\n", .{ id, x });
-        }
 
         std.debug.print("\nPackages:\n", .{});
-        for (self.package_names.data.items, 0..) |x, id| {
+        for (self.package_names.data.items, 0..) |x, id|
             std.debug.print("  {}: {s}\n", .{ id, x });
-        }
 
         std.debug.print("\nPersons:\n", .{});
         std.debug.print("  Count: {}\n", .{self.person_ids._next});
 
         std.debug.print("\nPerson strings:\n", .{});
-        for (self.person_strings.data.data.items, 0..) |x, id| {
+        for (self.person_strings.data.data.items, 0..) |x, id|
             std.debug.print(
                 "  {}: (package_id {}) (person_id {}) (attr_id {}) (value {s})\n",
                 .{
@@ -157,10 +157,9 @@ pub const AuthorsDB = struct {
                     x.value,
                 },
             );
-        }
 
         std.debug.print("\nPerson roles:\n", .{});
-        for (self.person_roles.data.data.items, 0..) |x, id| {
+        for (self.person_roles.data.data.items, 0..) |x, id|
             std.debug.print(
                 "  {}: (package_id {}) (person_id {}) (attr_id {}) (value {})\n",
                 .{
@@ -171,7 +170,6 @@ pub const AuthorsDB = struct {
                     x.value,
                 },
             );
-        }
     }
 
     pub fn nextPersonId(self: *AuthorsDB) PersonId {
@@ -258,14 +256,13 @@ pub const AuthorsDB = struct {
                     };
                 },
                 else => {
-                    std.debug.print("ERROR: package {s}: too many positional arguments.\n", .{package_name});
-                    unreachable;
+                    try logErr(log, .too_many_arguments, 0, package_name);
+                    break;
                 },
             }
 
-            if (string_value) |s| {
+            if (string_value) |s|
                 try self.putNewString(package_id, person_id, attr_id, s);
-            }
         } // positional arguments
 
         top: for (fc.named) |na| {
@@ -278,44 +275,35 @@ pub const AuthorsDB = struct {
                 switch (na.value) {
                     .string, .identifier => |s| try self.putNewString(package_id, person_id, attr_id, s), // TODO: permissive
 
-                    .function_call => |comment_fc| {
-                        if (eql("c", comment_fc.name)) {
-                            for (comment_fc.named) |comment_na| {
-                                attr_id = try self.attributeId(comment_na.name);
-                                switch (comment_na.value) {
-                                    .string => |comment_s| {
-                                        try self.putNewString(package_id, person_id, attr_id, comment_s);
-                                    },
-                                    .identifier => |comment_s| {
-                                        // TODO: too permissive?
-                                        try self.putNewString(package_id, person_id, attr_id, comment_s);
-                                    },
-                                    .function_call => |cfc| {
-                                        if (eql("c", cfc.name)) {
-                                            // comment = c(ORCID = c("123"))
-                                            // put each positional as attribute value, and each named, ignoring name
+                    .function_call => |comment_fc| if (eql("c", comment_fc.name)) {
+                        for (comment_fc.named) |comment_na| {
+                            attr_id = try self.attributeId(comment_na.name);
+                            switch (comment_na.value) {
+                                .string, .identifier => |comment_s| try self.putNewString(package_id, person_id, attr_id, comment_s),
 
-                                            for (cfc.positional) |fa| switch (fa) {
-                                                .string => |s| try self.putNewString(package_id, person_id, attr_id, s),
-                                                else => {
-                                                    try logErr(log, .expected_string, loc, package_name);
-                                                    continue :top;
-                                                },
-                                            };
-                                            for (cfc.named) |cna| switch (cna.value) {
-                                                .string => |s| try self.putNewString(package_id, person_id, attr_id, s),
-                                                else => {
-                                                    try logErr(log, .expected_string, loc, package_name);
-                                                    continue :top;
-                                                },
-                                            };
-                                        } else {
-                                            try logErr(log, .unsupported_function_call, loc, package_name);
+                                .function_call => |cfc| if (eql("c", cfc.name)) {
+                                    // comment = c(ORCID = c("123"))
+                                    // put each positional as attribute value, and each named, ignoring name
+
+                                    for (cfc.positional) |fa| switch (fa) {
+                                        .string => |s| try self.putNewString(package_id, person_id, attr_id, s),
+                                        else => {
+                                            try logErr(log, .expected_string, loc, package_name);
                                             continue :top;
-                                        }
-                                    },
-                                    .null => {},
-                                }
+                                        },
+                                    };
+                                    for (cfc.named) |cna| switch (cna.value) {
+                                        .string => |s| try self.putNewString(package_id, person_id, attr_id, s),
+                                        else => {
+                                            try logErr(log, .expected_string, loc, package_name);
+                                            continue :top;
+                                        },
+                                    };
+                                } else {
+                                    try logErr(log, .unsupported_function_call, loc, package_name);
+                                    continue :top;
+                                },
+                                .null => {},
                             }
                         }
                     },
@@ -332,28 +320,21 @@ pub const AuthorsDB = struct {
                         else => |code| try self.putNewRole(package_id, person_id, attr_id, code),
                     },
 
-                    .function_call => |role_fc| {
-                        if (eql("c", role_fc.name)) {
-                            for (role_fc.positional) |fa| {
-                                switch (fa) {
-                                    .string, .identifier => |s| switch (Role.fromString(s)) {
-                                        .unknown => {
-                                            try logUnknownRole(log, loc, package_name, s);
-                                            try self.putExtraRole(package_id, person_id, s);
-                                        },
-                                        else => |code| try self.putNewRole(package_id, person_id, attr_id, code),
+                    .function_call => |role_fc| if (eql("c", role_fc.name)) {
+                        for (role_fc.positional) |fa| {
+                            switch (fa) {
+                                .string, .identifier => |s| switch (Role.fromString(s)) {
+                                    .unknown => {
+                                        try logUnknownRole(log, loc, package_name, s);
+                                        try self.putExtraRole(package_id, person_id, s);
                                     },
-                                    else => {
-                                        try logErr(log, .expected_string_or_identifier, loc, package_name);
-                                        continue;
-                                    },
-                                }
-                            }
-                            for (role_fc.named) |_| {
-                                try logErr(log, .named_argument_in_role, loc, package_name);
-                                continue;
+                                    else => |code| try self.putNewRole(package_id, person_id, attr_id, code),
+                                },
+                                else => try logErr(log, .expected_string_or_identifier, loc, package_name),
                             }
                         }
+                        for (role_fc.named) |_|
+                            try logErr(log, .named_argument_in_role, loc, package_name);
                     },
                     .null => {},
                 }
@@ -371,32 +352,28 @@ pub const AuthorsDB = struct {
                         // treat other identifier values as string
                         try self.putNewString(package_id, person_id, attr_id, s);
                     },
-                    .function_call => |other_fc| {
-                        // support vector of attribute values by appending index to attribute name
-                        if (eql("c", other_fc.name)) {
-                            for (other_fc.positional, 1..) |fa, pos| {
-                                switch (fa) {
-                                    .string, .identifier => |s| {
-                                        // TODO: identifier as string too permissive?
-                                        if (pos == 1) {
-                                            // use unindexed name for first element
-                                            try self.putNewString(package_id, person_id, attr_id, s);
-                                        } else {
-                                            // make an indexed name and use it
-                                            var buf: [512]u8 = undefined;
-                                            const indexed_name = try std.fmt.bufPrint(&buf, "{s}{}", .{ mapped_name, pos });
-                                            const indexed_attr = try self.attributeId(try self.alloc.dupe(u8, indexed_name));
-                                            try self.putNewString(package_id, person_id, indexed_attr, s);
-                                        }
-                                    },
-                                    else => {
-                                        std.debug.print("ERROR: non-string positional argument: {s}\n", .{package_name});
-                                        return error.ParseError;
-                                    },
+                    .function_call => |other_fc|
+                    // support vector of attribute values by appending index to attribute name
+                    if (eql("c", other_fc.name))
+                        for (other_fc.positional, 1..) |fa, pos| switch (fa) {
+                            .string, .identifier => |s| {
+                                // TODO: identifier as string too permissive?
+                                if (pos == 1) {
+                                    // use unindexed name for first element
+                                    try self.putNewString(package_id, person_id, attr_id, s);
+                                } else {
+                                    // make an indexed name and use it
+                                    var buf: [512]u8 = undefined;
+                                    const indexed_name = try std.fmt.bufPrint(&buf, "{s}{}", .{ mapped_name, pos });
+                                    const indexed_attr = try self.attributeId(try self.alloc.dupe(u8, indexed_name));
+                                    try self.putNewString(package_id, person_id, indexed_attr, s);
                                 }
-                            }
-                        }
-                    },
+                            },
+                            else => {
+                                std.debug.print("ERROR: non-string positional argument: {s}\n", .{package_name});
+                                return error.ParseError;
+                            },
+                        },
                     .null => {},
                 }
             }
@@ -530,12 +507,12 @@ fn PersonAttributes(comptime T: type) type {
         pub fn next_attribute(self: @This(), person_id: PersonId, from_id: *IdType) ?PersonAttribute {
             var index = from_id.*;
             const items = self.data.data.items;
-            while (index < items.len) : (index += 1) {
+            while (index < items.len) : (index += 1)
                 if (items[index].person_id == person_id) {
                     from_id.* = index + 1;
                     return items[index];
-                }
-            }
+                };
+
             return null;
         }
     };
@@ -574,15 +551,15 @@ fn Storage(comptime T: type, comptime IdType: type) type {
             return error.OutOfRange;
         }
         pub fn lookup(self: @This(), value: T) ?IdType {
-            for (self.data.items, 0..) |x, index| {
+            for (self.data.items, 0..) |x, index|
                 if (std.meta.eql(x, value)) return @intCast(index);
-            }
+
             return null;
         }
         pub fn lookupString(self: @This(), value: []const u8) ?IdType {
-            for (self.data.items, 0..) |x, index| {
+            for (self.data.items, 0..) |x, index|
                 if (std.mem.eql(u8, x, value)) return @intCast(index);
-            }
+
             return null;
         }
     };
@@ -698,7 +675,6 @@ pub fn read(self: *Authors, source: []const u8, strings: *StringStorage) ![]LogI
                             for (fc.positional) |fa|
                                 if (try self.outer_c_argument(fa, ok.loc, package_name.?, &log))
                                     continue :top;
-
                             // named arguments in c(), ignore the names
                             for (fc.named) |na|
                                 if (try self.outer_c_argument(na.value, ok.loc, package_name.?, &log))
@@ -738,13 +714,10 @@ pub fn read(self: *Authors, source: []const u8, strings: *StringStorage) ![]LogI
             index += 1;
             switch (nodes[index]) {
                 .string_node => |s| authors_source = s.value,
-                else => {
-                    try logErr(&log, .authors_at_r_wrong_type, 0, package_name orelse "<unknown>");
-                    continue;
-                },
+                else => try logErr(&log, .authors_at_r_wrong_type, 0, package_name orelse "<unknown>"),
             }
         },
-        else => continue,
+        else => {},
     };
     return try log.toOwnedSlice();
 }
@@ -752,13 +725,11 @@ pub fn read(self: *Authors, source: []const u8, strings: *StringStorage) ![]LogI
 /// Returns true if rest of stanza should be skipped
 fn outer_c_argument(self: *Authors, fa: FunctionArg, loc: usize, package_name: []const u8, log: *LogItems) !bool {
     switch (fa) {
-        .function_call => |c_fc| {
-            if (std.mem.eql(u8, "person", c_fc.name)) {
-                try self.db.addFromFunctionCall(c_fc, loc, package_name, log);
-            } else {
-                try logWarn(log, .expected_person, loc, package_name);
-                return true;
-            }
+        .function_call => |c_fc| if (std.mem.eql(u8, "person", c_fc.name)) {
+            try self.db.addFromFunctionCall(c_fc, loc, package_name, log);
+        } else {
+            try logWarn(log, .expected_person, loc, package_name);
+            return true;
         },
         else => {
             try logWarn(log, .expected_function, loc, package_name);
@@ -788,9 +759,8 @@ fn logErr(log: *LogItems, tag: LogErrTag, loc: usize, package_name: []const u8) 
 fn parsePackageName(nodes: []Parser.Node, idx: *usize, strings: *StringStorage) ![]const u8 {
     idx.* += 1;
     switch (nodes[idx.*]) {
-        .name_and_version => |nv| {
-            return try strings.append(nv.name);
-        },
+        .name_and_version => |nv| return try strings.append(nv.name),
+
         // expect .name_and_version immediately after .field for a Package field
         else => unreachable,
     }
