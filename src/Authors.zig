@@ -177,6 +177,16 @@ pub const AuthorsDB = struct {
         return self.person_ids.nextId();
     }
 
+    const PutContext = struct {
+        fa: FunctionArg,
+        loc: usize,
+        attribute_id: AttributeId,
+        package_id: PackageId,
+        package_name: []const u8,
+        person_id: PersonId,
+        log: *LogItems,
+    };
+
     /// Leaky, prefer to use an ArenaAllocator.
     pub fn addFromFunctionCall(
         self: *AuthorsDB,
@@ -200,58 +210,68 @@ pub const AuthorsDB = struct {
         // deduplicate because anyway how?
         const person_id = self.nextPersonId();
 
+        var context: PutContext = .{
+            .fa = undefined,
+            .loc = loc,
+            .attribute_id = undefined,
+            .package_id = package_id,
+            .package_name = package_name,
+            .person_id = person_id,
+            .log = log,
+        };
+
         for (fc.positional, 1..) |fa, pos| {
-            var attr_id: AttributeId = undefined;
             var string_value: ?[]const u8 = null;
+            context.fa = fa;
 
             switch (pos) {
                 1 => {
-                    attr_id = try self.attributeId("given");
+                    context.attribute_id = try self.attributeId("given");
                     string_value = switch (fa) {
                         .string => |s| s,
                         else => null,
                     };
                 },
                 2 => {
-                    attr_id = try self.attributeId("family");
+                    context.attribute_id = try self.attributeId("family");
                     string_value = switch (fa) {
                         .string => |s| s,
                         else => null,
                     };
                 },
                 3 => {
-                    attr_id = try self.attributeId("middle");
+                    context.attribute_id = try self.attributeId("middle");
                     string_value = switch (fa) {
                         .string => |s| s,
                         else => null,
                     };
                 },
                 4 => {
-                    attr_id = try self.attributeId("email");
+                    context.attribute_id = try self.attributeId("email");
                     string_value = switch (fa) {
                         .string => |s| s,
                         else => null,
                     };
                 },
                 5 => {
-                    attr_id = try self.attributeId("role");
-                    try self.putRole(fa, loc, attr_id, package_id, package_name, person_id, log);
+                    context.attribute_id = try self.attributeId("role");
+                    try self.putRole(context);
                 },
 
                 6 => {
-                    attr_id = try self.attributeId("comment");
-                    try self.putComment(fa, loc, attr_id, package_id, package_name, person_id, log);
+                    context.attribute_id = try self.attributeId("comment");
+                    try self.putComment(context);
                 },
 
                 7 => {
-                    attr_id = try self.attributeId("first");
+                    context.attribute_id = try self.attributeId("first");
                     string_value = switch (fa) {
                         .string => |s| s,
                         else => null,
                     };
                 },
                 8 => {
-                    attr_id = try self.attributeId("last");
+                    context.attribute_id = try self.attributeId("last");
                     string_value = switch (fa) {
                         .string => |s| s,
                         else => null,
@@ -264,138 +284,115 @@ pub const AuthorsDB = struct {
             }
 
             if (string_value) |s|
-                try self.putNewString(package_id, person_id, attr_id, s);
+                try self.putNewString(context, s);
         } // positional arguments
 
-        for (fc.named) |na|
+        for (fc.named) |na| {
             // person (given = NULL, family = NULL, middle = NULL, email = NULL,
             //     role = NULL, comment = NULL, first = NULL, last = NULL)
 
+            context.fa = na.value;
+
             if (std.mem.startsWith(u8, na.name, "c")) { // comment
-                const attr_id = try self.attributeId("comment");
-                try self.putComment(na.value, loc, attr_id, package_id, package_name, person_id, log);
+                context.attribute_id = try self.attributeId("comment");
+                try self.putComment(context);
             } else if (std.mem.startsWith(u8, na.name, "r")) { // "role"
-                const attr_id = try self.attributeId("role");
-                try self.putRole(na.value, loc, attr_id, package_id, package_name, person_id, log);
+                context.attribute_id = try self.attributeId("role");
+                try self.putRole(context);
             } else {
                 // named arguments can be shortest unique substring of
                 // defined arguments in person():
                 const mapped_name = mapNamedArgument(na.name);
-                const attr_id = try self.attributeId(mapped_name);
-                try self.putAny(na.value, loc, attr_id, mapped_name, package_id, package_name, person_id, log);
-            }; // named arguments
+                context.attribute_id = try self.attributeId(mapped_name);
+                try self.putAny(context, mapped_name);
+            }
+        } // named arguments
     }
 
-    fn putComment(
-        self: *AuthorsDB,
-        fa: FunctionArg,
-        loc: usize,
-        attribute_id: AttributeId,
-        package_id: PackageId,
-        package_name: []const u8,
-        person_id: PersonId,
-        log: *LogItems,
-    ) !void {
-        switch (fa) {
-            .string => |s| try self.putNewString(package_id, person_id, attribute_id, s),
+    fn putComment(self: *AuthorsDB, ctx: PutContext) !void {
+        switch (ctx.fa) {
+            .string => |s| try self.putNewString(ctx, s),
             .identifier => |s| {
                 // ignore named arguments with null value
                 if (std.mem.eql(u8, "NULL", s)) return;
 
                 // treat other identifier values as string
-                try self.putNewString(package_id, person_id, attribute_id, s);
+                try self.putNewString(ctx, s);
             },
             .function_call => |fc| if (std.mem.eql(u8, "c", fc.name)) {
                 for (fc.positional) |fa_| switch (fa_) {
-                    .string => |s| try self.putNewString(package_id, person_id, attribute_id, s),
+                    .string => |s| try self.putNewString(ctx, s),
                     else => {
-                        try logErr(log, .expected_string, loc, package_name);
+                        try logErr(ctx.log, .expected_string, ctx.loc, ctx.package_name);
                         break;
                     },
                 };
                 for (fc.named) |na| {
-                    const attr_id = try self.attributeId(na.name);
+                    var ctx_ = ctx;
+                    ctx_.attribute_id = try self.attributeId(na.name);
+                    ctx_.fa = na.value;
                     switch (na.value) {
-                        .string, .identifier => |s| try self.putNewString(package_id, person_id, attr_id, s),
+                        .string, .identifier => |s| try self.putNewString(ctx_, s),
                         .function_call => |cfc| if (std.mem.eql(u8, "c", cfc.name)) {
                             // comment = c(ORCID = c("123")).
                             // recurse
-                            try self.putComment(na.value, loc, attr_id, package_id, package_name, person_id, log);
+                            try self.putComment(ctx_);
                         },
                         .null => {},
                     }
                 }
             } else {
-                try logErr(log, .unsupported_function_call, loc, package_name);
+                try logErr(ctx.log, .unsupported_function_call, ctx.loc, ctx.package_name);
             },
             .null => {},
         }
     }
 
-    fn putRole(
-        self: *AuthorsDB,
-        fa: FunctionArg,
-        loc: usize,
-        attribute_id: AttributeId,
-        package_id: PackageId,
-        package_name: []const u8,
-        person_id: PersonId,
-        log: *LogItems,
-    ) !void {
-        switch (fa) {
+    fn putRole(self: *AuthorsDB, ctx: PutContext) !void {
+        switch (ctx.fa) {
             .string, .identifier => |s| switch (Role.fromString(s)) {
                 .unknown => {
-                    try logUnknownRole(log, loc, package_name, s);
-                    try self.putExtraRole(package_id, person_id, s);
+                    try logUnknownRole(ctx.log, ctx.loc, ctx.package_name, s);
+                    try self.putExtraRole(ctx.package_id, ctx.person_id, s);
                 },
-                else => |code| try self.putNewRole(package_id, person_id, attribute_id, code),
+                else => |code| try self.putNewRole(ctx, code),
             },
 
             .function_call => |role_fc| if (std.mem.eql(u8, "c", role_fc.name)) {
                 for (role_fc.positional) |fa_| switch (fa_) {
                     .string, .identifier => |s| switch (Role.fromString(s)) {
                         .unknown => {
-                            try logUnknownRole(log, loc, package_name, s);
-                            try self.putExtraRole(package_id, person_id, s);
+                            try logUnknownRole(ctx.log, ctx.loc, ctx.package_name, s);
+                            try self.putExtraRole(ctx.package_id, ctx.person_id, s);
                         },
-                        else => |code| try self.putNewRole(package_id, person_id, attribute_id, code),
+                        else => |code| try self.putNewRole(ctx, code),
                     },
-                    else => try logErr(log, .expected_string_or_identifier, loc, package_name),
+                    else => try logErr(ctx.log, .expected_string_or_identifier, ctx.loc, ctx.package_name),
                 };
 
                 for (role_fc.named) |_|
-                    try logErr(log, .named_argument_in_role, loc, package_name);
+                    try logErr(ctx.log, .named_argument_in_role, ctx.loc, ctx.package_name);
             },
             .null => {},
         }
     }
 
-    fn putAny(
-        self: *AuthorsDB,
-        fa: FunctionArg,
-        loc: usize,
-        attribute_id: AttributeId,
-        attribute_name: []const u8,
-        package_id: PackageId,
-        package_name: []const u8,
-        person_id: PersonId,
-        log: *LogItems,
-    ) !void {
+    fn putAny(self: *AuthorsDB, ctx: PutContext, attribute_name: []const u8) !void {
         if (std.mem.eql(u8, "comment", attribute_name)) {
-            try self.putComment(fa, loc, attribute_id, package_id, package_name, person_id, log);
+            try self.putComment(ctx);
             return;
         } else if (std.mem.eql(u8, "role", attribute_name)) {
-            try self.putRole(fa, loc, attribute_id, package_id, package_name, person_id, log);
+            try self.putRole(ctx);
             return;
         }
-        switch (fa) {
-            .string => |s| try self.putNewString(package_id, person_id, attribute_id, s),
+        switch (ctx.fa) {
+            .string => |s| try self.putNewString(ctx, s),
             .identifier => |s| {
                 // ignore named arguments with null value
                 if (std.mem.eql(u8, "NULL", s)) return;
 
                 // treat other identifier values as string
-                try self.putNewString(package_id, person_id, attribute_id, s);
+                try self.putNewString(ctx, s);
             },
             .function_call => |other_fc|
             // support vector of attribute values by appending index to attribute name
@@ -405,16 +402,17 @@ pub const AuthorsDB = struct {
                         // TODO: identifier as string too permissive?
                         if (pos == 1) {
                             // use unindexed name for first element
-                            try self.putNewString(package_id, person_id, attribute_id, s);
+                            try self.putNewString(ctx, s);
                         } else {
                             // make an indexed name and use it
                             var buf: [512]u8 = undefined;
+                            var ctx_ = ctx;
                             const indexed_name = try std.fmt.bufPrint(&buf, "{s}{}", .{ attribute_name, pos });
-                            const indexed_attr = try self.attributeId(try self.alloc.dupe(u8, indexed_name));
-                            try self.putNewString(package_id, person_id, indexed_attr, s);
+                            ctx_.attribute_id = try self.attributeId(try self.alloc.dupe(u8, indexed_name));
+                            try self.putNewString(ctx_, s);
                         }
                     },
-                    else => try logErr(log, .expected_string, loc, package_name),
+                    else => try logErr(ctx.log, .expected_string, ctx.loc, ctx.package_name),
                 },
             .null => {},
         }
@@ -454,30 +452,26 @@ pub const AuthorsDB = struct {
 
     fn putNewString(
         self: *AuthorsDB,
-        package_id: PackageId,
-        person_id: PersonId,
-        attribute_id: AttributeId,
+        ctx: PutContext,
         value: []const u8,
     ) !void {
         try self.person_strings.put(self.person_strings.data.nextId(), .{
-            .package_id = package_id,
-            .person_id = person_id,
-            .attribute_id = attribute_id,
+            .package_id = ctx.package_id,
+            .person_id = ctx.person_id,
+            .attribute_id = ctx.attribute_id,
             .value = value,
         });
     }
 
     fn putNewRole(
         self: *AuthorsDB,
-        package_id: PackageId,
-        person_id: PersonId,
-        attribute_id: AttributeId,
+        ctx: PutContext,
         value: Role,
     ) !void {
         try self.person_roles.put(self.person_roles.data.nextId(), .{
-            .package_id = package_id,
-            .person_id = person_id,
-            .attribute_id = attribute_id,
+            .package_id = ctx.package_id,
+            .person_id = ctx.person_id,
+            .attribute_id = ctx.attribute_id,
             .value = value,
         });
     }
