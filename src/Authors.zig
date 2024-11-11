@@ -386,8 +386,10 @@ pub const AuthorsDB = struct {
     ) !void {
         if (std.mem.eql(u8, "comment", attribute_name)) {
             try self.putComment(fa, loc, attribute_id, package_id, package_name, person_id, log);
+            return;
         } else if (std.mem.eql(u8, "role", attribute_name)) {
             try self.putRole(fa, loc, attribute_id, package_id, package_name, person_id, log);
+            return;
         }
         switch (fa) {
             .string => |s| try self.putNewString(package_id, person_id, attribute_id, s),
