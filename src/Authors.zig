@@ -698,7 +698,7 @@ pub fn read(self: *Authors, source: []const u8, strings: *StringStorage) ![]LogI
     var package_name: ?[]const u8 = null;
     var prev_package_name: ?[]const u8 = null;
     var authors_source: ?[]const u8 = null;
-    top: while (true) : (index += 1) switch (nodes[index]) {
+    while (true) : (index += 1) switch (nodes[index]) {
         .eof => break,
         .stanza_end => {
             // parse authors field if any
@@ -714,12 +714,11 @@ pub fn read(self: *Authors, source: []const u8, strings: *StringStorage) ![]LogI
                         // outer function can be c() or person()
                         if (std.mem.eql(u8, "c", fc.name)) {
                             for (fc.positional) |fa|
-                                if (try self.outerCArgument(fa, ok.loc, package_name.?, &log))
-                                    continue :top;
+                                try self.outerCArgument(fa, ok.loc, package_name.?, &log);
+
                             // named arguments in c(), ignore the names
                             for (fc.named) |na|
-                                if (try self.outerCArgument(na.value, ok.loc, package_name.?, &log))
-                                    continue :top;
+                                try self.outerCArgument(na.value, ok.loc, package_name.?, &log);
                         } else if (std.mem.eql(u8, "person", fc.name)) {
                             try self.db.addFromFunctionCall(fc, ok.loc, package_name.?, &log);
                         } else {
@@ -764,20 +763,17 @@ pub fn read(self: *Authors, source: []const u8, strings: *StringStorage) ![]LogI
 }
 
 /// Returns true if rest of stanza should be skipped
-fn outerCArgument(self: *Authors, fa: FunctionArg, loc: usize, package_name: []const u8, log: *LogItems) !bool {
+fn outerCArgument(self: *Authors, fa: FunctionArg, loc: usize, package_name: []const u8, log: *LogItems) !void {
     switch (fa) {
         .function_call => |c_fc| if (std.mem.eql(u8, "person", c_fc.name)) {
             try self.db.addFromFunctionCall(c_fc, loc, package_name, log);
         } else {
             try logWarn(log, .expected_person, loc, package_name);
-            return true;
         },
         else => {
             try logWarn(log, .expected_function, loc, package_name);
-            return true;
         },
     }
-    return false;
 }
 
 fn logParseError(log: *LogItems, e: RParser.ErrLoc, package_name: ?[]const u8) !void {
