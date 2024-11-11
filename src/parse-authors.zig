@@ -213,12 +213,14 @@ fn create_tables(conn: mosql.Connection) !void {
         \\PRAGMA dqs_ddl=0;
     );
     try conn.exec(
+        \\BEGIN;
         \\DROP TABLE IF EXISTS person_role;
         \\DROP TABLE IF EXISTS person_value;
         \\DROP TABLE IF EXISTS person;
         \\DROP TABLE IF EXISTS package;
         \\DROP TABLE IF EXISTS role;
         \\DROP TABLE IF EXISTS attribute;
+        \\COMMIT;
         \\
         \\CREATE TABLE person (
         \\  id INTEGER PRIMARY KEY
