@@ -234,13 +234,12 @@ pub const AuthorsDB = struct {
                         else => null,
                     };
                 },
+
                 6 => {
                     attr_id = try self.attributeId("comment");
-                    string_value = switch (fa) {
-                        .string => |s| s,
-                        else => null,
-                    };
+                    try self.put_comment(fa, loc, attr_id, package_id, package_name, person_id, log);
                 },
+
                 7 => {
                     attr_id = try self.attributeId("first");
                     string_value = switch (fa) {
@@ -265,52 +264,15 @@ pub const AuthorsDB = struct {
                 try self.putNewString(package_id, person_id, attr_id, s);
         } // positional arguments
 
-        top: for (fc.named) |na| {
-            var attr_id: AttributeId = undefined;
-
+        for (fc.named) |na|
             // person (given = NULL, family = NULL, middle = NULL, email = NULL,
             //     role = NULL, comment = NULL, first = NULL, last = NULL)
+
             if (std.mem.startsWith(u8, na.name, "c")) { // comment
-                attr_id = try self.attributeId("comment");
-                switch (na.value) {
-                    .string, .identifier => |s| try self.putNewString(package_id, person_id, attr_id, s), // TODO: permissive
-
-                    .function_call => |comment_fc| if (eql("c", comment_fc.name)) {
-                        for (comment_fc.named) |comment_na| {
-                            attr_id = try self.attributeId(comment_na.name);
-                            switch (comment_na.value) {
-                                .string, .identifier => |comment_s| try self.putNewString(package_id, person_id, attr_id, comment_s),
-
-                                .function_call => |cfc| if (eql("c", cfc.name)) {
-                                    // comment = c(ORCID = c("123"))
-                                    // put each positional as attribute value, and each named, ignoring name
-
-                                    for (cfc.positional) |fa| switch (fa) {
-                                        .string => |s| try self.putNewString(package_id, person_id, attr_id, s),
-                                        else => {
-                                            try logErr(log, .expected_string, loc, package_name);
-                                            continue :top;
-                                        },
-                                    };
-                                    for (cfc.named) |cna| switch (cna.value) {
-                                        .string => |s| try self.putNewString(package_id, person_id, attr_id, s),
-                                        else => {
-                                            try logErr(log, .expected_string, loc, package_name);
-                                            continue :top;
-                                        },
-                                    };
-                                } else {
-                                    try logErr(log, .unsupported_function_call, loc, package_name);
-                                    continue :top;
-                                },
-                                .null => {},
-                            }
-                        }
-                    },
-                    .null => {},
-                }
+                const attr_id = try self.attributeId("comment");
+                try self.put_comment(na.value, loc, attr_id, package_id, package_name, person_id, log);
             } else if (std.mem.startsWith(u8, na.name, "r")) { // "role"
-                attr_id = try self.attributeId("role");
+                const attr_id = try self.attributeId("role");
                 switch (na.value) {
                     .string, .identifier => |s| switch (Role.fromString(s)) {
                         .unknown => {
@@ -342,7 +304,7 @@ pub const AuthorsDB = struct {
                 // named arguments can be shortest unique substring of
                 // defined arguments in person():
                 const mapped_name = map_named_argument(na.name);
-                attr_id = try self.attributeId(mapped_name);
+                const attr_id = try self.attributeId(mapped_name);
                 switch (na.value) {
                     .string => |s| try self.putNewString(package_id, person_id, attr_id, s),
                     .identifier => |s| {
@@ -376,8 +338,48 @@ pub const AuthorsDB = struct {
                         },
                     .null => {},
                 }
-            }
-        } // named arguments
+            }; // named arguments
+    }
+
+    fn put_comment(
+        self: *AuthorsDB,
+        fa: FunctionArg,
+        loc: usize,
+        attribute_id: AttributeId,
+        package_id: PackageId,
+        package_name: []const u8,
+        person_id: PersonId,
+        log: *LogItems,
+    ) !void {
+        switch (fa) {
+            .string, .identifier => |s| try self.putNewString(package_id, person_id, attribute_id, s), // TODO: permissive
+
+            .function_call => |fc| if (std.mem.eql(u8, "c", fc.name)) {
+                for (fc.positional) |fa_| switch (fa_) {
+                    .string => |s| try self.putNewString(package_id, person_id, attribute_id, s),
+                    else => {
+                        try logErr(log, .expected_string, loc, package_name);
+                        break;
+                    },
+                };
+                for (fc.named) |na| {
+                    const attr_id = try self.attributeId(na.name);
+                    switch (na.value) {
+                        .string, .identifier => |comment_s| try self.putNewString(package_id, person_id, attr_id, comment_s),
+                        .function_call => |cfc| if (std.mem.eql(u8, "c", cfc.name)) {
+                            // comment = c(ORCID = c("123")).
+                            // recurse
+                            try self.put_comment(na.value, loc, attr_id, package_id, package_name, person_id, log);
+                        },
+
+                        .null => {},
+                    }
+                }
+            } else {
+                try logErr(log, .unsupported_function_call, loc, package_name);
+            },
+            .null => {},
+        }
     }
 
     fn map_named_argument(name: []const u8) []const u8 {
@@ -780,7 +782,7 @@ test "Authors" {
         \\    person("Kevin", "Ushey", role = c("aut", "cre"), email = "kevin@rstudio.com",
         \\           comment = c(ORCID = "0000-0003-2880-7407")),
         \\    person("Hadley", "Wickham", role = c("aut"), email = "hadley@rstudio.com",
-        \\           comment = c(ORCID = "0000-0003-4757-117X")),
+        \\           comment = c(ORCIDXXX = c("0000-0003-4757-117X"))),
         \\    person("Posit Software, PBC", role = c("cph", "fnd", "xyz", "zzz"))
         \\    )
         \\
