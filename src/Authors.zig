@@ -178,7 +178,13 @@ pub const AuthorsDB = struct {
     }
 
     /// Leaky, prefer to use an ArenaAllocator.
-    pub fn addFromFunctionCall(self: *AuthorsDB, fc: FunctionCall, loc: usize, package_name: []const u8, log: *LogItems) !void {
+    pub fn addFromFunctionCall(
+        self: *AuthorsDB,
+        fc: FunctionCall,
+        loc: usize,
+        package_name: []const u8,
+        log: *LogItems,
+    ) !void {
         assert(std.mem.eql(u8, "person", fc.name));
 
         const package_id = self.package_names.lookupString(package_name) orelse b: {
@@ -237,7 +243,7 @@ pub const AuthorsDB = struct {
 
                 6 => {
                     attr_id = try self.attributeId("comment");
-                    try self.put_comment(fa, loc, attr_id, package_id, package_name, person_id, log);
+                    try self.putComment(fa, loc, attr_id, package_id, package_name, person_id, log);
                 },
 
                 7 => {
@@ -270,20 +276,20 @@ pub const AuthorsDB = struct {
 
             if (std.mem.startsWith(u8, na.name, "c")) { // comment
                 const attr_id = try self.attributeId("comment");
-                try self.put_comment(na.value, loc, attr_id, package_id, package_name, person_id, log);
+                try self.putComment(na.value, loc, attr_id, package_id, package_name, person_id, log);
             } else if (std.mem.startsWith(u8, na.name, "r")) { // "role"
                 const attr_id = try self.attributeId("role");
-                try self.put_role(na.value, loc, attr_id, package_id, package_name, person_id, log);
+                try self.putRole(na.value, loc, attr_id, package_id, package_name, person_id, log);
             } else {
                 // named arguments can be shortest unique substring of
                 // defined arguments in person():
-                const mapped_name = map_named_argument(na.name);
+                const mapped_name = mapNamedArgument(na.name);
                 const attr_id = try self.attributeId(mapped_name);
-                try self.put_any(na.value, loc, attr_id, mapped_name, package_id, package_name, person_id, log);
+                try self.putAny(na.value, loc, attr_id, mapped_name, package_id, package_name, person_id, log);
             }; // named arguments
     }
 
-    fn put_comment(
+    fn putComment(
         self: *AuthorsDB,
         fa: FunctionArg,
         loc: usize,
@@ -317,7 +323,7 @@ pub const AuthorsDB = struct {
                         .function_call => |cfc| if (std.mem.eql(u8, "c", cfc.name)) {
                             // comment = c(ORCID = c("123")).
                             // recurse
-                            try self.put_comment(na.value, loc, attr_id, package_id, package_name, person_id, log);
+                            try self.putComment(na.value, loc, attr_id, package_id, package_name, person_id, log);
                         },
                         .null => {},
                     }
@@ -329,7 +335,7 @@ pub const AuthorsDB = struct {
         }
     }
 
-    fn put_role(
+    fn putRole(
         self: *AuthorsDB,
         fa: FunctionArg,
         loc: usize,
@@ -367,7 +373,7 @@ pub const AuthorsDB = struct {
         }
     }
 
-    fn put_any(
+    fn putAny(
         self: *AuthorsDB,
         fa: FunctionArg,
         loc: usize,
@@ -379,9 +385,9 @@ pub const AuthorsDB = struct {
         log: *LogItems,
     ) !void {
         if (std.mem.eql(u8, "comment", attribute_name)) {
-            try self.put_comment(fa, loc, attribute_id, package_id, package_name, person_id, log);
+            try self.putComment(fa, loc, attribute_id, package_id, package_name, person_id, log);
         } else if (std.mem.eql(u8, "role", attribute_name)) {
-            try self.put_role(fa, loc, attribute_id, package_id, package_name, person_id, log);
+            try self.putRole(fa, loc, attribute_id, package_id, package_name, person_id, log);
         }
         switch (fa) {
             .string => |s| try self.putNewString(package_id, person_id, attribute_id, s),
@@ -415,7 +421,7 @@ pub const AuthorsDB = struct {
         }
     }
 
-    fn map_named_argument(name: []const u8) []const u8 {
+    fn mapNamedArgument(name: []const u8) []const u8 {
         // person (given = NULL, family = NULL, middle = NULL, email = NULL,
         //     role = NULL, comment = NULL, first = NULL, last = NULL)
         const startsWith = std.mem.startsWith;
@@ -539,7 +545,7 @@ fn PersonAttributes(comptime T: type) type {
         /// Return next record matching person_id, starting at id
         /// from_id. From_id will be updated to point to record after
         /// the one returned.
-        pub fn next_attribute(self: @This(), person_id: PersonId, from_id: *IdType) ?PersonAttribute {
+        pub fn nextAttribute(self: @This(), person_id: PersonId, from_id: *IdType) ?PersonAttribute {
             var index = from_id.*;
             const items = self.data.data.items;
             while (index < items.len) : (index += 1)
@@ -708,11 +714,11 @@ pub fn read(self: *Authors, source: []const u8, strings: *StringStorage) ![]LogI
                         // outer function can be c() or person()
                         if (std.mem.eql(u8, "c", fc.name)) {
                             for (fc.positional) |fa|
-                                if (try self.outer_c_argument(fa, ok.loc, package_name.?, &log))
+                                if (try self.outerCArgument(fa, ok.loc, package_name.?, &log))
                                     continue :top;
                             // named arguments in c(), ignore the names
                             for (fc.named) |na|
-                                if (try self.outer_c_argument(na.value, ok.loc, package_name.?, &log))
+                                if (try self.outerCArgument(na.value, ok.loc, package_name.?, &log))
                                     continue :top;
                         } else if (std.mem.eql(u8, "person", fc.name)) {
                             try self.db.addFromFunctionCall(fc, ok.loc, package_name.?, &log);
@@ -758,7 +764,7 @@ pub fn read(self: *Authors, source: []const u8, strings: *StringStorage) ![]LogI
 }
 
 /// Returns true if rest of stanza should be skipped
-fn outer_c_argument(self: *Authors, fa: FunctionArg, loc: usize, package_name: []const u8, log: *LogItems) !bool {
+fn outerCArgument(self: *Authors, fa: FunctionArg, loc: usize, package_name: []const u8, log: *LogItems) !bool {
     switch (fa) {
         .function_call => |c_fc| if (std.mem.eql(u8, "person", c_fc.name)) {
             try self.db.addFromFunctionCall(c_fc, loc, package_name, log);
