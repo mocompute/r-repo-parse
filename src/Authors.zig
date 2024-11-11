@@ -235,10 +235,7 @@ pub const AuthorsDB = struct {
                 },
                 5 => {
                     attr_id = try self.attributeId("role");
-                    string_value = switch (fa) {
-                        .string => |s| s,
-                        else => null,
-                    };
+                    try self.putRole(fa, loc, attr_id, package_id, package_name, person_id, log);
                 },
 
                 6 => {
