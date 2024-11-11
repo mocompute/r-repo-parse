@@ -294,7 +294,14 @@ pub const AuthorsDB = struct {
         log: *LogItems,
     ) !void {
         switch (fa) {
-            .string, .identifier => |s| try self.putNewString(package_id, person_id, attribute_id, s), // TODO: permissive
+            .string => |s| try self.putNewString(package_id, person_id, attribute_id, s),
+            .identifier => |s| {
+                // ignore named arguments with null value
+                if (std.mem.eql(u8, "NULL", s)) return;
+
+                // treat other identifier values as string
+                try self.putNewString(package_id, person_id, attribute_id, s);
+            },
             .function_call => |fc| if (std.mem.eql(u8, "c", fc.name)) {
                 for (fc.positional) |fa_| switch (fa_) {
                     .string => |s| try self.putNewString(package_id, person_id, attribute_id, s),
@@ -380,7 +387,7 @@ pub const AuthorsDB = struct {
             .string => |s| try self.putNewString(package_id, person_id, attribute_id, s),
             .identifier => |s| {
                 // ignore named arguments with null value
-                if (std.ascii.eqlIgnoreCase("null", s)) return;
+                if (std.mem.eql(u8, "NULL", s)) return;
 
                 // treat other identifier values as string
                 try self.putNewString(package_id, person_id, attribute_id, s);
