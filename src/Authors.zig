@@ -555,7 +555,7 @@ fn PersonAttributes(comptime T: type) type {
 fn Storage(comptime T: type, comptime IdType: type) type {
     return struct {
         data: std.ArrayList(T),
-        _next: IdType = 0,
+        _next: IdType = @enumFromInt(0),
 
         pub fn init(alloc: Allocator) @This() {
             return .{
@@ -567,18 +567,18 @@ fn Storage(comptime T: type, comptime IdType: type) type {
             self.* = undefined;
         }
         pub fn nextId(self: *@This()) IdType {
-            assert(self._next != std.math.maxInt(IdType));
+            assert(@intFromEnum(self._next) != maxInt(IdType));
             const out = self._next;
-            self._next += 1;
+            self._next = @enumFromInt(@intFromEnum(self._next) + 1);
             return out;
         }
         pub fn put(self: *@This(), id: IdType, value: T) !void {
-            assert(id != std.math.maxInt(IdType));
-            const new_len = id + 1;
+            assert(@intFromEnum(self._next) != maxInt(IdType));
+            const new_len = @intFromEnum(id) + 1;
             if (self.data.items.len < new_len)
                 try self.data.resize(new_len);
 
-            self.data.items[id] = value;
+            self.data.items[@intFromEnum(id)] = value;
         }
         pub fn get(self: @This(), id: IdType) !T {
             if (id < self.data.items.len) return self.data.items[id];
@@ -592,17 +592,21 @@ fn Storage(comptime T: type, comptime IdType: type) type {
         }
         pub fn lookupString(self: @This(), value: []const u8) ?IdType {
             for (self.data.items, 0..) |x, index|
-                if (std.mem.eql(u8, x, value)) return @intCast(index);
+                if (std.mem.eql(u8, x, value)) return @enumFromInt(index);
 
             return null;
         }
     };
 }
 
-const AttributeId = u16;
-const PersonAttributeId = u32;
-const PersonId = u32;
-const PackageId = u32;
+const AttributeId = enum(u16) { _ };
+const PersonAttributeId = enum(u32) { _ };
+const PersonId = enum(u32) { _ };
+const PackageId = enum(u32) { _ };
+
+fn maxInt(Id: type) @typeInfo(Id).@"enum".tag_type {
+    return std.math.maxInt(@typeInfo(Id).@"enum".tag_type);
+}
 
 pub const Role = enum(u8) {
     unknown, // must be first
