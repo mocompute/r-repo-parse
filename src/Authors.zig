@@ -599,10 +599,30 @@ fn Storage(comptime T: type, comptime IdType: type) type {
     };
 }
 
-const AttributeId = enum(u16) { _ };
-const PersonAttributeId = enum(u32) { _ };
-const PersonId = enum(u32) { _ };
-const PackageId = enum(u32) { _ };
+const AttributeId = enum(u16) {
+    _,
+    pub fn int(self: @This()) @typeInfo(@This()).@"enum".tag_type {
+        return @intFromEnum(self);
+    }
+};
+const PersonAttributeId = enum(u32) {
+    _,
+    pub fn int(self: @This()) @typeInfo(@This()).@"enum".tag_type {
+        return @intFromEnum(self);
+    }
+};
+const PersonId = enum(u32) {
+    _,
+    pub fn int(self: @This()) @typeInfo(@This()).@"enum".tag_type {
+        return @intFromEnum(self);
+    }
+};
+const PackageId = enum(u32) {
+    _,
+    pub fn int(self: @This()) @typeInfo(@This()).@"enum".tag_type {
+        return @intFromEnum(self);
+    }
+};
 
 fn maxInt(Id: type) @typeInfo(Id).@"enum".tag_type {
     return std.math.maxInt(@typeInfo(Id).@"enum".tag_type);

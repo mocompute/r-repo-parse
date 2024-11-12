@@ -356,7 +356,7 @@ fn dump_authors_db(conn: mosql.Connection, db: *const Authors.AuthorsDB) !void {
 
     // person_ids
     try conn.begin();
-    for (0..db.person_ids._next) |id| {
+    for (0..db.person_ids._next.int()) |id| {
         if (id % 1000 == 0) {
             try conn.commit();
             try conn.begin();
@@ -375,9 +375,9 @@ fn dump_authors_db(conn: mosql.Connection, db: *const Authors.AuthorsDB) !void {
             try conn.begin();
         }
         try person_attr.reset();
-        person_attr.bind_int(1, x.person_id);
-        person_attr.bind_int(2, x.package_id);
-        person_attr.bind_int(3, x.attribute_id);
+        person_attr.bind_int(1, x.person_id.int());
+        person_attr.bind_int(2, x.package_id.int());
+        person_attr.bind_int(3, x.attribute_id.int());
         person_attr.bind_text(4, x.value);
         step_one(&person_attr);
     }
@@ -391,8 +391,8 @@ fn dump_authors_db(conn: mosql.Connection, db: *const Authors.AuthorsDB) !void {
             try conn.begin();
         }
         try person_role.reset();
-        person_role.bind_int(1, x.person_id);
-        person_role.bind_int(2, x.package_id);
+        person_role.bind_int(1, x.person_id.int());
+        person_role.bind_int(2, x.package_id.int());
         person_role.bind_int(3, @intFromEnum(x.value));
         step_one(&person_role);
     }
@@ -413,4 +413,8 @@ fn step_one(stmt: *mosql.Statement) void {
         std.debug.print("error: statement expected done\n", .{});
         std.process.exit(1);
     }
+}
+
+test {
+    _ = std.testing.refAllDeclsRecursive(@This());
 }
