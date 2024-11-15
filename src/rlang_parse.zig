@@ -15,6 +15,29 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+//! A limited R language parser. Primarily intended to support the use
+//! of R code as data, without resorting to the use of the `eval()`
+//! function. R "code as data" is used in the Authors@R field of
+//! package DESCRIPTION files, for example.
+//!
+//! The parser returns a sequence of nodes, each of which is either a
+//! function call specifier or a function argument specifier. Function
+//! call specifiers contain the name of the function called, a sequence
+//! of positional arguments, and a sequence of named arguments. If
+//! positional and named arguments are interleaved, the overall order
+//! of arguments is lost. For example, if three named arguments appear
+//! before the first unnamed argument, the latter will be returned as
+//! the first positional argument. There is no attempt to perform
+//! argument matching as defined in
+//! https://cran.r-project.org/doc/manuals/r-release/R-lang.html#Argument-matching,
+//! because that is not possible without evaluating the definition of
+//! the function being called.
+//!
+//! Parsed nodes are returned in a sequence one at a time by successive
+//! calls to `Parser.next`. For a simple state machine which
+//! demonstrates how to consume parsed nodes for semantic analysis, see
+//! `Authors.zig`.
+
 // -- tokenizer ----------------------------------------------------
 
 const Token = union(enum) {
@@ -54,12 +77,16 @@ const Token = union(enum) {
 };
 
 pub const Tokenizer = struct {
-    buffer: []const u8 = &.{},
+    source: []const u8 = &.{},
     index: usize = 0,
     strings: *StringStorage,
 
-    pub fn init(buffer: []const u8, strings: *StringStorage) Tokenizer {
-        return .{ .buffer = buffer, .index = 0, .strings = strings };
+    /// Initialise a Tokenizer and ready it to return one token at a
+    /// time by calls to its `next` function. Tokens representing
+    /// strings will copy the strings out of buffer and into the
+    /// provided StringStorage.
+    pub fn init(source: []const u8, strings: *StringStorage) Tokenizer {
+        return .{ .source = source, .index = 0, .strings = strings };
     }
 
     pub fn deinit(self: *Tokenizer) void {
@@ -98,6 +125,10 @@ pub const Tokenizer = struct {
         }
     };
 
+    /// Return the next token in the source provided to the `init`
+    /// function. Strings are copied to the StringStorage provided to
+    /// the `init` function. Locations are byte indexes into the
+    /// source.
     pub fn next(self: *Tokenizer) error{OutOfMemory}!Result {
         const State = enum {
             start,
@@ -117,8 +148,8 @@ pub const Tokenizer = struct {
         var state: State = .start;
         var string: Loc = .{ .start = self.index, .end = self.index };
 
-        while (self.index < self.buffer.len) {
-            const c = self.buffer[self.index];
+        while (self.index < self.source.len) {
+            const c = self.source[self.index];
             const cpos = self.index;
             self.index += 1;
 
@@ -154,7 +185,7 @@ pub const Tokenizer = struct {
                     '"' => {
                         // string.start points to open quote
                         string.end = cpos;
-                        const s = try self.strings.append(self.buffer[string.start + 1 .. string.end]);
+                        const s = try self.strings.append(self.source[string.start + 1 .. string.end]);
                         return ok(.{ .string = s }, string.start);
                     },
                     '\\' => state = .string_backslash,
@@ -164,7 +195,7 @@ pub const Tokenizer = struct {
                     '\'' => {
                         // string.start points to open quote
                         string.end = cpos;
-                        const s = try self.strings.append(self.buffer[string.start + 1 .. string.end]);
+                        const s = try self.strings.append(self.source[string.start + 1 .. string.end]);
                         return ok(.{ .string = s }, string.start);
                     },
                     '\\' => state = .string_single_backslash,
@@ -178,7 +209,7 @@ pub const Tokenizer = struct {
                     else => {
                         self.index -= 1; // backtrack
                         string.end = cpos;
-                        const s = try self.strings.append(self.buffer[string.start..string.end]);
+                        const s = try self.strings.append(self.source[string.start..string.end]);
                         return ok(.{ .identifier = s }, string.start);
                     },
                 },
@@ -187,7 +218,7 @@ pub const Tokenizer = struct {
                     else => {
                         self.index -= 1; // backtrack
                         string.end = cpos;
-                        const s = try self.strings.append(self.buffer[string.start..string.end]);
+                        const s = try self.strings.append(self.source[string.start..string.end]);
                         return ok(.{ .string = s }, string.start);
                     },
                 },
@@ -199,12 +230,12 @@ pub const Tokenizer = struct {
             .start, .hash => return ok(.eof, self.index),
             .identifier => {
                 string.end = self.index;
-                const s = try self.strings.append(self.buffer[string.start..string.end]);
+                const s = try self.strings.append(self.source[string.start..string.end]);
                 return ok(.{ .identifier = s }, string.start);
             },
             .number => {
                 string.end = self.index;
-                const s = try self.strings.append(self.buffer[string.start..string.end]);
+                const s = try self.strings.append(self.source[string.start..string.end]);
                 return ok(.{ .string = s }, string.start);
             },
             .string, .string_single, .string_backslash, .string_single_backslash => {
