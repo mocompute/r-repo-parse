@@ -21,17 +21,14 @@
     .minimum_zig_version = "0.14.0",
     .dependencies = .{
         .mos = .{
-            .url = "https://github.com/mocompute/mos/archive/refs/tags/v0.2.0.tar.gz",
-            .hash = "12201be8c88f308ba07e8d9ed791a57043b2d2628d9e45e66c1d39d7b147042e30d5",
+            .path = "vendor/mos-0.2.0",
         },
         .cmdline = .{
-            .url = "https://codeberg.org/mocompute/cmdline/archive/refs/tags/v0.2.0.tar.gz",
-            .hash = "1220282a3821f32628ba00a350b20846201dca82208c4ca0f63fdaaab0d1106f9141",
+            .path = "vendor/cmdline-0.2.0",
             .lazy = true,
         },
         .mosql = .{
-            .url = "https://codeberg.org/mocompute/mosql/archive/refs/tags/v0.3.0.tar.gz",
-            .hash = "1220a392d6ee5e83944e4dde69de1b60fad809627fd4c7d48b1b3584f13b99bbfdf9",
+            .path = "vendor/mosql-0.3.0",
             .lazy = true,
         },
     },
