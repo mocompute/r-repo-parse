@@ -525,7 +525,7 @@ pub const Tokenizer = struct {
                     '\n' => {
                         state = .newline;
                     },
-                    'a'...'z', 'A'...'Z', '_' => {
+                    'a'...'z', 'A'...'Z', '_', '.' => {
                         state = .identifier;
                         result.tag = .identifier;
                     },
@@ -765,7 +765,7 @@ pub const Tokenizer = struct {
 
                 .identifier => {
                     switch (c) {
-                        'a'...'z', 'A'...'Z', '_', '0'...'9' => continue,
+                        'a'...'z', 'A'...'Z', '_', '0'...'9', '.' => continue,
                         '\n', ':', ',', '(', ')' => {
                             break;
                         },
