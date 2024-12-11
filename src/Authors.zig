@@ -938,10 +938,10 @@ test "logging" {
     const alloc = arena.allocator();
 
     const source =
-        \\Package: parse-error
+        \\Package: parse-error-expected
         \\Authors@R: c(')
         \\
-        \\Package: fun-err
+        \\Package: fun-warning-expected
         \\Authors@R: x()
         \\
     ;
@@ -952,6 +952,7 @@ test "logging" {
     var authors = Authors.init(alloc);
     defer authors.deinit();
 
+    std.debug.print("error: this and the next error reported to console are expected.\n", .{});
     const log = try authors.read(source, &strings);
 
     for (log) |x| switch (x.tag) {
