@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-//! Parse Debian Control Files with a focus on the R PACKAGES file !
+//! Parse Debian Control Files with a focus on the R PACKAGES file
 //! format.
 //!
 //! Inspired by Zig tokenizer and parser.
@@ -538,12 +538,8 @@ pub const Tokenizer = struct {
                         };
                         state = .invalid;
                     },
-                    '\r', '\t', ' ' => {
-                        result.loc.start = self.index + 1;
-                    },
-                    '\n' => {
-                        state = .newline;
-                    },
+                    '\r', '\t', ' ' => result.loc.start = self.index + 1,
+                    '\n' => state = .newline,
                     'a'...'z', 'A'...'Z', '_', '.' => {
                         state = .identifier;
                         result.tag = .identifier;
@@ -562,15 +558,10 @@ pub const Tokenizer = struct {
                         self.index += 1;
                         break;
                     },
-                    '<' => {
-                        state = .open_angle;
-                    },
-                    '>' => {
-                        state = .close_angle;
-                    },
-                    '=' => {
-                        state = .equal;
-                    },
+                    '<' => state = .open_angle,
+                    '>' => state = .close_angle,
+                    '=' => state = .equal,
+
                     ':' => {
                         result.tag = .colon;
                         self.index += 1;
@@ -581,9 +572,8 @@ pub const Tokenizer = struct {
                         self.index += 1;
                         break;
                     },
-                    0x01...0x08, 0x0b, 0x0c, 0x0e...0x1f, 0x7f => {
-                        state = .invalid;
-                    },
+                    0x01...0x08, 0x0b, 0x0c, 0x0e...0x1f, 0x7f => state = .invalid,
+
                     else => {
                         result.tag = .string_literal;
                         state = .unparsed;
@@ -604,9 +594,7 @@ pub const Tokenizer = struct {
                             result.tag = .less_than;
                             self.index -= 1; // backtrack
                         },
-                        else => {
-                            state = .unparsed;
-                        },
+                        else => state = .unparsed,
                     }
                 },
                 .open_angle_equal => {
@@ -620,9 +608,7 @@ pub const Tokenizer = struct {
                             result.tag = .less_than_equal;
                             self.index -= 1; // backtrack
                         },
-                        else => {
-                            state = .unparsed;
-                        },
+                        else => state = .unparsed,
                     }
                 },
                 .close_angle => {
@@ -640,9 +626,7 @@ pub const Tokenizer = struct {
                             result.tag = .greater_than;
                             self.index -= 1; // backtrack
                         },
-                        else => {
-                            state = .unparsed;
-                        },
+                        else => state = .unparsed,
                     }
                 },
                 .close_angle_equal => {
@@ -656,9 +640,7 @@ pub const Tokenizer = struct {
                             result.tag = .greater_than_equal;
                             self.index -= 1; // backtrack
                         },
-                        else => {
-                            state = .unparsed;
-                        },
+                        else => state = .unparsed,
                     }
                 },
                 .equal => {
@@ -672,9 +654,7 @@ pub const Tokenizer = struct {
                             result.tag = .equal;
                             self.index -= 1; // backtrack
                         },
-                        else => {
-                            state = .unparsed;
-                        },
+                        else => state = .unparsed,
                     }
                 },
 
@@ -713,22 +693,12 @@ pub const Tokenizer = struct {
                 },
                 .version_literal => {
                     switch (c) {
-                        '\n' => {
-                            break;
-                        },
+                        '\n' => break,
                         ')' => break,
-                        'r' => {
-                            state = .version_literal_r;
-                        },
-                        '.' => {
-                            state = .version_literal_dot;
-                        },
-                        '-' => {
-                            state = .version_literal_minus;
-                        },
-                        ' ', '\r', '\t' => {
-                            break;
-                        },
+                        'r' => state = .version_literal_r,
+                        '.' => state = .version_literal_dot,
+                        '-' => state = .version_literal_minus,
+                        ' ', '\r', '\t' => break,
                         '0'...'9' => continue,
                         else => {
                             state = .unparsed;
@@ -738,9 +708,7 @@ pub const Tokenizer = struct {
                 },
                 .version_literal_dot => {
                     switch (c) {
-                        '0'...'9' => {
-                            state = .version_literal;
-                        },
+                        '0'...'9' => state = .version_literal,
                         else => {
                             result.tag = .unparsed;
                             break;
@@ -749,9 +717,7 @@ pub const Tokenizer = struct {
                 },
                 .version_literal_minus => {
                     switch (c) {
-                        '0'...'9' => {
-                            state = .version_literal;
-                        },
+                        '0'...'9' => state = .version_literal,
                         else => {
                             result.tag = .unparsed;
                             break;
@@ -760,9 +726,7 @@ pub const Tokenizer = struct {
                 },
                 .version_literal_r => {
                     switch (c) {
-                        '0'...'9' => {
-                            state = .version_literal_r_digit;
-                        },
+                        '0'...'9' => state = .version_literal_r_digit,
                         else => {
                             result.tag = .unparsed;
                             break;
@@ -771,9 +735,7 @@ pub const Tokenizer = struct {
                 },
                 .version_literal_r_digit => {
                     switch (c) {
-                        ' ', '\n', '\r', '\t' => {
-                            break;
-                        },
+                        ' ', '\n', '\r', '\t' => break,
                         '0'...'9' => continue,
                         else => {
                             result.tag = .unparsed;
@@ -785,16 +747,9 @@ pub const Tokenizer = struct {
                 .identifier => {
                     switch (c) {
                         'a'...'z', 'A'...'Z', '_', '0'...'9', '.' => continue,
-                        '\n', ':', ',', '(', ')' => {
-                            break;
-                        },
-
-                        ' ', '\r', '\t' => {
-                            break;
-                        },
-                        0x01...0x08, 0x0b, 0x0c, 0x0e...0x1f, 0x7f => {
-                            state = .invalid;
-                        },
+                        '\n', ':', ',', '(', ')' => break,
+                        ' ', '\r', '\t' => break,
+                        0x01...0x08, 0x0b, 0x0c, 0x0e...0x1f, 0x7f => state = .invalid,
                         else => continue,
                     }
                 },
@@ -804,9 +759,7 @@ pub const Tokenizer = struct {
                             self.index -= 1; // backtrack
                             break;
                         },
-                        else => {
-                            state = .identifier;
-                        },
+                        else => state = .identifier,
                     }
                 },
 
