@@ -44,50 +44,29 @@ pub const Parser = struct {
     _source: []const u8,
     _tokenizer: Tokenizer,
 
-    pub const ParseError = struct {
-        message: []const u8,
-        token: Token,
-        line: usize,
-        pub fn debugPrint(self: ParseError, source: ?[]const u8) void {
-            if (source) |s| {
-                std.debug.print("ERROR: ParseError on line {}: {s}: {s}\n", .{
-                    self.line,
-                    self.message,
-                    s[self.token.loc.start..self.token.loc.end],
-                });
-            } else {
-                std.debug.print("ERROR: ParseError on line {}: {s}: {}\n", .{
-                    self.line,
-                    self.message,
-                    self.token,
-                });
-            }
-        }
-    };
     pub const NodeList = std.ArrayList(Node);
-    pub const RootNode = struct {};
-    pub const StanzaNode = struct {};
     pub const FieldNode = struct {
         name: []const u8,
+        loc: usize,
     };
     pub const NameAndVersionNode = struct {
         name: []const u8,
         version_constraint: VersionConstraint = .{},
+        loc: usize,
     };
     pub const StringNode = struct {
         value: []const u8,
+        loc: usize,
     };
-    pub const FieldEndNode = void;
-    pub const StanzaEndNode = void;
 
     pub const Node = union(enum) {
-        root: RootNode,
-        stanza: StanzaNode,
+        root,
+        stanza,
         field: FieldNode,
         name_and_version: NameAndVersionNode,
         string_node: StringNode,
-        field_end: FieldEndNode,
-        stanza_end: StanzaEndNode,
+        field_end,
+        stanza_end,
         eof,
 
         pub fn format(self: Node, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
@@ -144,7 +123,7 @@ pub const Parser = struct {
 
         self._tokenizer = Tokenizer.init(source);
 
-        try self.appendNode(Node{ .root = .{} });
+        try self.appendNode(Node{ .root = {} });
 
         while (true) {
             const token = try self.parseStanza();
@@ -158,7 +137,7 @@ pub const Parser = struct {
     }
 
     fn parseStanza(self: *Parser) !Token {
-        try self.appendNode(Node{ .stanza = .{} });
+        try self.appendNode(Node{ .stanza = {} });
 
         var token: Token = undefined;
         while (true) {
@@ -184,6 +163,7 @@ pub const Parser = struct {
                 .eof, .end_field, .end_stanza => return token,
                 .identifier => {
                     field.name = try self.lexeme(token);
+                    field.loc = token.loc.start;
                     const expect_colon = self._tokenizer.next();
                     if (expect_colon.tag != .colon)
                         return self.parseError(expect_colon, "expected a colon after field name");
@@ -242,7 +222,10 @@ pub const Parser = struct {
                     .identifier => {
                         state = .identifier;
                         node = Node{
-                            .name_and_version = .{ .name = try self.lexeme(token) },
+                            .name_and_version = .{
+                                .name = try self.lexeme(token),
+                                .loc = token.loc.start,
+                            },
                         };
                     },
                     .comma => {
@@ -252,7 +235,10 @@ pub const Parser = struct {
                     else => {
                         state = .string;
                         node = Node{
-                            .string_node = .{ .value = try self.lexeme(token) },
+                            .string_node = .{
+                                .value = try self.lexeme(token),
+                                .loc = token.loc.start,
+                            },
                         };
                     },
                 },
@@ -275,7 +261,10 @@ pub const Parser = struct {
                     else => {
                         // switch to string, starting back at the first token we saw
                         node = Node{
-                            .string_node = .{ .value = self._source[start..token.loc.end] },
+                            .string_node = .{
+                                .value = self._source[start..token.loc.end],
+                                .loc = start,
+                            },
                         };
                         state = .string;
                     },
@@ -288,7 +277,10 @@ pub const Parser = struct {
                         const ver = Version.parse(try self.lexeme(token)) catch {
                             // revert back to string
                             node = Node{
-                                .string_node = .{ .value = self._source[start..token.loc.end] },
+                                .string_node = .{
+                                    .value = self._source[start..token.loc.end],
+                                    .loc = start,
+                                },
                             };
                             state = .string;
                             continue;
@@ -310,7 +302,10 @@ pub const Parser = struct {
                         if (expect_close_round.tag != .close_round) {
                             // switch back to string
                             node = Node{
-                                .string_node = .{ .value = self._source[start..token.loc.end] },
+                                .string_node = .{
+                                    .value = self._source[start..token.loc.end],
+                                    .loc = start,
+                                },
                             };
                             state = .string;
                         }
@@ -321,7 +316,10 @@ pub const Parser = struct {
                     else => {
                         // switch to string
                         node = Node{
-                            .string_node = .{ .value = self._source[start..token.loc.end] },
+                            .string_node = .{
+                                .value = self._source[start..token.loc.end],
+                                .loc = start,
+                            },
                         };
                         state = .string;
                     },
@@ -386,6 +384,27 @@ pub const Parser = struct {
         }
         return count;
     }
+
+    pub const ParseError = struct {
+        message: []const u8,
+        token: Token,
+        line: usize,
+        pub fn debugPrint(self: ParseError, source: ?[]const u8) void {
+            if (source) |s| {
+                std.debug.print("ERROR: ParseError on line {}: {s}: {s}\n", .{
+                    self.line,
+                    self.message,
+                    s[self.token.loc.start..self.token.loc.end],
+                });
+            } else {
+                std.debug.print("ERROR: ParseError on line {}: {s}: {}\n", .{
+                    self.line,
+                    self.message,
+                    self.token,
+                });
+            }
+        }
+    };
 };
 
 // -- tokenize ---------------------------------------------------------------
