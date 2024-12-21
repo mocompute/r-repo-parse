@@ -25,6 +25,7 @@ pub const rlang_parse = @import("rlang_parse.zig");
 
 pub const Repository = repository.Repository;
 pub const Authors = @import("Authors.zig");
+pub const StringStorage = string_storage.StringStorage;
 
 test {
     _ = version;

@@ -2,8 +2,10 @@ const std = @import("std");
 const cmdline = @import("cmdline");
 const mos = @import("mos");
 const mosql = @import("mosql");
-const StringStorage = @import("string_storage.zig").StringStorage;
-const Authors = @import("Authors.zig");
+
+const mod = @import("r-repo-parse");
+const StringStorage = mod.StringStorage;
+const Authors = mod.Authors;
 
 const Options = .{
     .{ "db", 0 }, // suppress -d option

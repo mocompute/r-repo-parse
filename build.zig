@@ -49,7 +49,7 @@ pub fn build(b: *Build) !void {
 
     // -- end dependencies -----------------------------------------------------
 
-    // -- begin module -------------------------------------------------------
+    // -- begin module ---------------------------------------------------------
 
     const mod = b.addModule("r-repo-parse", .{
         .root_source_file = b.path("src/root.zig"),
@@ -58,17 +58,19 @@ pub fn build(b: *Build) !void {
     });
     mod.addImport("mos", mos);
 
-    // -- end module ---------------------------------------------------------
+    // -- end module ----------------------------------------------------------
 
-    // -- begin executable -------------------------------------------------------
+    // -- begin executable ----------------------------------------------------
 
     const exe = b.addExecutable(.{
         .name = "parse-authors",
-        .root_source_file = b.path("src/parse-authors.zig"),
+        .root_source_file = b.path("src/exe/parse-authors.zig"),
         .target = target,
         .optimize = optimize,
     });
     exe.root_module.addImport("mos", mos);
+    exe.root_module.addImport("r-repo-parse", mod);
+
     if (cmdline) |dep| {
         exe.root_module.addImport("cmdline", dep.module("cmdline"));
     }
@@ -78,9 +80,9 @@ pub fn build(b: *Build) !void {
     }
     b.installArtifact(exe);
 
-    // -- end executable ---------------------------------------------------------
+    // -- end executable ------------------------------------------------------
 
-    // -- begin test ---------------------------------------------------------
+    // -- begin test ----------------------------------------------------------
 
     const lib_unit_tests = b.addTest(.{
         .root_source_file = b.path("src/root.zig"),
@@ -95,7 +97,7 @@ pub fn build(b: *Build) !void {
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_lib_unit_tests.step);
 
-    // -- end test -----------------------------------------------------------
+    // -- end test ------------------------------------------------------------
 
     // -- begin check ---------------------------------------------------------
 
