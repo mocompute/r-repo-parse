@@ -38,6 +38,11 @@ pub fn build(b: *Build) !void {
         .optimize = optimize,
     }).module("mos");
 
+    const dcf = b.dependency("dcf", .{
+        .target = target,
+        .optimize = optimize,
+    }).module("dcf");
+
     const cmdline = b.lazyDependency("cmdline", .{
         .target = target,
         .optimize = optimize,
@@ -57,6 +62,7 @@ pub fn build(b: *Build) !void {
         .optimize = optimize,
     });
     mod.addImport("mos", mos);
+    mod.addImport("dcf", dcf);
 
     // -- end module ----------------------------------------------------------
 

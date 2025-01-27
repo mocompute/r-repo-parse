@@ -1,7 +1,8 @@
 alloc: Allocator,
 strings: StringStorage,
 packages: std.MultiArrayList(Package),
-parse_error: ?Parser.ParseError = null,
+stanza_error: ?dcf.StanzaParser.ErrorInfo = null,
+field_error: ?dcf.FieldParser.ErrorInfo = null,
 
 pub const Index = @import("Repository/Index.zig");
 pub const Tools = @import("Repository/Tools.zig");
@@ -97,6 +98,73 @@ pub fn findLatestPackage(
 /// Control File format, same as R PACKAGES file. Returns number
 /// of packages found.
 pub fn read(self: *Repository, name: []const u8, source: []const u8) !usize {
+    const eql = std.ascii.eqlIgnoreCase;
+
+    var count: usize = 0;
+
+    // allocate a buffer large enough for maximum size of field
+    // supported
+    const buf = try self.alloc.alloc(u8, 16 * 1024);
+    defer allocator.free(buf);
+
+    // parsers
+    var stanzas = dcf.StanzaParser.init(source);
+    var stanza_error = dcf.StanzaParser.ErrorInfo.empty;
+    var fields = dcf.FieldParser.init("", buf);
+    var field_error = dcf.FieldParser.ErrorInfo.empty;
+
+    // state
+    const empty_package: Package = .{ .repository = try self.strings.append(name) };
+    var package = empty_package;
+    errdefer package.deinit(self.alloc);
+
+    while (true) {
+        const stanza = stanzas.next(&stanza_error) catch |err| switch (err) {
+            error.Eof => break,
+            else => |e| {
+                self.stanza_error = stanza_error;
+                std.debug.print("unexpected stanza error: {}", .{e});
+                return e;
+            },
+        };
+
+        fields.reset(stanza);
+
+        while (true) {
+            const field = fields.next(&field_error) catch |err| switch (err) {
+                error.Eof => break,
+                else => |e| {
+                    self.field_error = field_error;
+                    return e;
+                },
+            };
+
+            if (eql("package", field.name)) {
+                package.name = try self.strings.append(field.value);
+            } else if (eql("version", field.name)) {
+                package.version_string = try self.strings.append(field.value);
+                package.version = try Version.parse(package.version_string);
+            } else if (eql("depends", field.name)) {
+                // FIXME need to parse a string into a list of NameAndVersionConstraint
+
+            } else if (eql("suggests", field.name)) {
+                //
+            } else if (eql("imports", field.name)) {
+                //
+            } else if (eql("linkingto", field.name)) {
+                //
+            }
+        }
+
+        if (package.name.len != 0) {
+            try self.packages.append(self.alloc, package);
+            package = empty_package;
+            count += 1;
+        }
+    }
+}
+
+pub fn readOld(self: *Repository, name: []const u8, source: []const u8) !usize {
     var count: usize = 0;
     var parser = parse.Parser.init(self.alloc, &self.strings);
     defer parser.deinit();
@@ -511,13 +579,11 @@ const Repository = @This();
 const std = @import("std");
 const mem = std.mem;
 const mos = @import("mos");
+const dcf = @import("dcf");
 const testing = std.testing;
 const Allocator = std.mem.Allocator;
 
 const StringStorage = @import("string_storage.zig").StringStorage;
-
-const parse = @import("parse.zig");
-const Parser = parse.Parser;
 
 pub const version = @import("version.zig");
 const NameAndVersionConstraint = version.NameAndVersionConstraint;
