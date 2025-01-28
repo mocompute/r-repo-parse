@@ -96,5 +96,6 @@ const Index = @This();
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
-const Version = @import("../version.zig").Version;
+const rlang = @import("rlang");
+const Version = rlang.Version;
 const Repository = @import("../repository_tools.zig").Repository;

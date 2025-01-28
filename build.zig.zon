@@ -28,6 +28,11 @@
             .url = "https://github.com/mocompute/zig-dcf/archive/refs/heads/main.tar.gz",
             .hash = "1220de96687435e6e4119901c529d0d9000484971b8f0c7c7b09dd84876f92b367b9",
         },
+        .rlang = .{
+            .url = "https://github.com/mocompute/zig-rlang/archive/refs/heads/main.tar.gz",
+            .hash = "1220fd730ff258058a4c7ea98dad3213ce2dafcaddde200236474d06c228c85caf12",
+        },
+
         .cmdline = .{
             .url = "https://codeberg.org/mocompute/cmdline/archive/refs/tags/v0.2.0.tar.gz",
             .hash = "1220282a3821f32628ba00a350b20846201dca82208c4ca0f63fdaaab0d1106f9141",

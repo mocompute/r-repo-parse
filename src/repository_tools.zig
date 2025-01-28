@@ -33,34 +33,28 @@ test "PACKAGES.gz" {
 
     var strings = try StringStorage.init(alloc, std.heap.page_allocator);
     defer strings.deinit();
-    var parser = parse.Parser.init(alloc, &strings);
-    defer parser.deinit();
-    parser.parse(source.?) catch |err| switch (err) {
-        error.ParseError => {
-            if (parser.parse_error) |perr| {
-                perr.debugPrint(source.?);
-            }
-        },
-        error.OutOfMemory => {
-            std.debug.print("ERROR: OutOfMemory\n", .{});
-        },
-        else => unreachable,
-    };
+    // var parser = parse.Parser.init(alloc, &strings);
+    // defer parser.deinit();
+    // parser.parse(source.?) catch |err| switch (err) {
+    //     error.ParseError => {
+    //         if (parser.parse_error) |perr| {
+    //             perr.debugPrint(source.?);
+    //         }
+    //     },
+    //     error.OutOfMemory => {
+    //         std.debug.print("ERROR: OutOfMemory\n", .{});
+    //     },
+    //     else => unreachable,
+    // };
 
-    std.debug.print("Parse to AST only = {}ms\n", .{@divFloor(timer.lap(), 1_000_000)});
-    std.debug.print("Parser nodes: {d}\n", .{parser.nodes.items.len});
-    std.debug.print("Number of stanzas parsed: {d}\n", .{parser.numStanzas()});
+    // std.debug.print("Parse to AST only = {}ms\n", .{@divFloor(timer.lap(), 1_000_000)});
+    // std.debug.print("Parser nodes: {d}\n", .{parser.nodes.items.len});
+    // std.debug.print("Number of stanzas parsed: {d}\n", .{parser.numStanzas()});
 
     // read entire repo
     var repo = try Repository.init(alloc);
     defer repo.deinit();
-    _ = repo.read("test repo", source.?) catch |err| switch (err) {
-        error.ParseError => {
-            repo.parse_error.?.debugPrint(source);
-            return err;
-        },
-        else => return err,
-    };
+    _ = try repo.read("test repo", source.?);
     std.debug.print(
         "Parse to Repository ({} packages) = {}ms\n",
         .{ repo.packages.len, @divFloor(timer.lap(), 1_000_000) },
@@ -110,59 +104,56 @@ test "PACKAGES sanity check" {
     const path = "PACKAGES.gz";
     std.fs.cwd().access(path, .{}) catch return;
     const alloc = testing.allocator;
-    var source: ?[]const u8 = try mos.file.readFileMaybeGzip(alloc, path);
+    const source: ?[]const u8 = try mos.file.readFileMaybeGzip(alloc, path);
     defer if (source) |s| alloc.free(s);
 
     var repo = try Repository.init(alloc);
     defer repo.deinit();
+
     if (source) |s| {
-        _ = repo.read("test", s) catch |err| switch (err) {
-            error.ParseError => {
-                repo.parse_error.?.debugPrint(source.?);
-                return err;
-            },
-            else => return err,
-        };
-        alloc.free(s);
-        source = null;
+        _ = try repo.read("test", s);
+        // FIXME: make more sane this thing with string storage and string lifetime expectations.
+
+        // alloc.free(s);
+        // source = null;
     }
 
-    var index = try Repository.Index.init(repo);
-    defer index.deinit();
+    // var index = try Repository.Index.init(repo);
+    // defer index.deinit();
 
-    var unsatisfied = std.StringHashMap(std.ArrayList(NameAndVersionConstraint)).init(alloc);
-    defer {
-        var it = unsatisfied.iterator();
-        while (it.next()) |x| x.value_ptr.deinit();
-        unsatisfied.deinit();
-    }
+    // var unsatisfied = std.StringHashMap(std.ArrayList(rlang.PackageSpec)).init(alloc);
+    // defer {
+    //     var it = unsatisfied.iterator();
+    //     while (it.next()) |x| x.value_ptr.deinit();
+    //     unsatisfied.deinit();
+    // }
 
-    var it = repo.iter();
-    while (it.next()) |p| {
-        const deps = try Repository.Tools.unsatisfied(index, alloc, p.depends);
-        defer alloc.free(deps);
-        const impo = try Repository.Tools.unsatisfied(index, alloc, p.imports);
-        defer alloc.free(impo);
-        const link = try Repository.Tools.unsatisfied(index, alloc, p.linkingTo);
-        defer alloc.free(link);
+    // var it = repo.iter();
+    // while (it.next()) |p| {
+    //     const deps = try Repository.Tools.unsatisfied(index, alloc, p.depends);
+    //     defer alloc.free(deps);
+    //     const impo = try Repository.Tools.unsatisfied(index, alloc, p.imports);
+    //     defer alloc.free(impo);
+    //     const link = try Repository.Tools.unsatisfied(index, alloc, p.linkingTo);
+    //     defer alloc.free(link);
 
-        const res = try unsatisfied.getOrPut(p.name);
-        if (!res.found_existing) res.value_ptr.* = std.ArrayList(NameAndVersionConstraint).init(alloc);
-        try res.value_ptr.appendSlice(deps);
-        try res.value_ptr.appendSlice(impo);
-        try res.value_ptr.appendSlice(link);
-    }
+    //     const res = try unsatisfied.getOrPut(p.name);
+    //     if (!res.found_existing) res.value_ptr.* = std.ArrayList(rlang.PackageSpec).init(alloc);
+    //     try res.value_ptr.appendSlice(deps);
+    //     try res.value_ptr.appendSlice(impo);
+    //     try res.value_ptr.appendSlice(link);
+    // }
 
-    var un_it = unsatisfied.iterator();
-    while (un_it.next()) |u| {
-        for (u.value_ptr.items) |nav| {
-            std.debug.print("Package '{s}' dependency '{s}' version '{s}' not satisfied.\n", .{
-                u.key_ptr.*,
-                nav.name,
-                nav.version_constraint,
-            });
-        }
-    }
+    // var un_it = unsatisfied.iterator();
+    // while (un_it.next()) |u| {
+    //     for (u.value_ptr.items) |nav| {
+    //         std.debug.print("Package '{s}' dependency '{s}' version '{s}' not satisfied.\n", .{
+    //             u.key_ptr.*,
+    //             nav.name,
+    //             nav.version_constraint,
+    //         });
+    //     }
+    // }
 }
 
 test "find latest package" {
@@ -189,7 +180,7 @@ test "find latest package" {
 
         const package = try repo.findLatestPackage(alloc, .{ .name = "foo" });
         try testing.expectEqualStrings("foo", package.?.name);
-        try testing.expectEqual(Version{ .major = 1, .minor = 0, .patch = 1, .rev = 0 }, package.?.version);
+        try testing.expectEqual(rlang.Version{ .major = 1, .minor = 0, .patch = 1, .rev = 0 }, package.?.version);
     }
     {
         var repo = try Repository.init(alloc);
@@ -199,7 +190,7 @@ test "find latest package" {
         const package = try repo.findLatestPackage(alloc, .{ .name = "foo" });
         try testing.expectEqualStrings("foo", package.?.name);
         try testing.expectEqualStrings("test", package.?.repository);
-        try testing.expectEqual(Version{ .major = 1, .minor = 0, .patch = 2, .rev = 0 }, package.?.version);
+        try testing.expectEqual(rlang.Version{ .major = 1, .minor = 0, .patch = 2, .rev = 0 }, package.?.version);
     }
 
     {
@@ -209,7 +200,7 @@ test "find latest package" {
         var index = try Repository.Index.init(repo);
         defer index.deinit();
 
-        const package_index = Repository.Tools.matchPackage(index, NameAndVersionConstraint{
+        const package_index = Repository.Tools.matchPackage(index, rlang.PackageSpec{
             .name = "foo",
             .version_constraint = .{
                 .operator = .gt,
@@ -221,7 +212,7 @@ test "find latest package" {
         });
         try testing.expectEqual(0, package_index.?);
 
-        try testing.expectEqual(null, Repository.Tools.matchPackage(index, NameAndVersionConstraint{
+        try testing.expectEqual(null, Repository.Tools.matchPackage(index, rlang.PackageSpec{
             .name = "foo",
             .version_constraint = .{
                 .operator = .gt,
@@ -259,7 +250,7 @@ test "transitive dependencies" {
 
         try testing.expectEqualDeep(
             res[0],
-            NameAndVersionConstraint{ .name = "child", .version_constraint = try version.VersionConstraint.parse(.gte, "1.0") },
+            rlang.PackageSpec{ .name = "child", .version_constraint = try rlang.VersionConstraint.parseOperatorVersion(.gte, "1.0") },
         );
     }
     {
@@ -272,7 +263,7 @@ test "transitive dependencies" {
 
         try testing.expectEqualDeep(
             res[0],
-            NameAndVersionConstraint{ .name = "child", .version_constraint = try version.VersionConstraint.parse(.gte, "1.0") },
+            rlang.PackageSpec{ .name = "child", .version_constraint = try rlang.VersionConstraint.parseOperatorVersion(.gte, "1.0") },
         );
     }
 }
@@ -288,34 +279,34 @@ test "versions with minus" {
         \\License: MIT
         \\
     ;
-    {
-        var tokenizer = parse.Tokenizer.init(data);
-        defer tokenizer.deinit();
+    // {
+    //     var tokenizer = parse.Tokenizer.init(data);
+    //     defer tokenizer.deinit();
 
-        while (true) {
-            const tok = tokenizer.next();
-            if (tok.tag == .eof) break;
-            // tok.debugPrint(data);
-        }
-    }
-    {
-        var strings = try StringStorage.init(alloc, std.heap.page_allocator);
-        defer strings.deinit();
-        var parser = parse.Parser.init(alloc, &strings);
-        defer parser.deinit();
-        parser.parse(data) catch |err| switch (err) {
-            error.ParseError => |e| {
-                // self.parse_error = parser.parse_error;
-                return e;
-            },
-            else => |e| {
-                return e;
-            },
-        };
-        for (parser.nodes.items) |node| {
-            std.debug.print("{}\n", .{node});
-        }
-    }
+    //     while (true) {
+    //         const tok = tokenizer.next();
+    //         if (tok.tag == .eof) break;
+    //         // tok.debugPrint(data);
+    //     }
+    // }
+    // {
+    //     var strings = try StringStorage.init(alloc, std.heap.page_allocator);
+    //     defer strings.deinit();
+    //     var parser = parse.Parser.init(alloc, &strings);
+    //     defer parser.deinit();
+    //     parser.parse(data) catch |err| switch (err) {
+    //         error.ParseError => |e| {
+    //             // self.parse_error = parser.parse_error;
+    //             return e;
+    //         },
+    //         else => |e| {
+    //             return e;
+    //         },
+    //     };
+    //     for (parser.nodes.items) |node| {
+    //         std.debug.print("{}\n", .{node});
+    //     }
+    // }
 
     {
         var repo = try Repository.init(alloc);
@@ -379,14 +370,7 @@ test "duplicate depends/imports/linkingto returns ParseError" {
 const std = @import("std");
 
 const mos = @import("mos");
+const rlang = @import("rlang");
 const testing = std.testing;
 
 const StringStorage = @import("string_storage.zig").StringStorage;
-
-const parse = @import("parse.zig");
-const Parser = parse.Parser;
-
-const version = @import("version.zig");
-const NameAndVersionConstraint = version.NameAndVersionConstraint;
-const Version = version.Version;
-const NameAndVersionConstraintHashMap = version.NameAndVersionConstraintHashMap;

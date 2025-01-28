@@ -47,11 +47,11 @@ pub fn first(self: Repository) ?Package {
     return it.next();
 }
 
-/// Return one or more packages information for given NameAndVersionConstraint.
+/// Return one or more packages information for given rlang.PackageSpec.
 pub fn findPackage(
     self: Repository,
     alloc: Allocator,
-    navc: NameAndVersionConstraint,
+    navc: rlang.PackageSpec,
     comptime options: struct { max_results: u32 = 16 },
 ) error{OutOfMemory}![]Package {
     var out = try std.ArrayList(Package).initCapacity(alloc, options.max_results);
@@ -71,13 +71,13 @@ pub fn findPackage(
 }
 
 /// Return the latest package, if any, that satisfies the given
-/// NameAndVersionConstraint. If there are multiple packages that
+/// rlang.PackageSpec. If there are multiple packages that
 /// satisfy the constraint, return the one with the highest
 /// version.
 pub fn findLatestPackage(
     self: Repository,
     alloc: Allocator,
-    navc: NameAndVersionConstraint,
+    navc: rlang.PackageSpec,
 ) error{OutOfMemory}!?Package {
     const packages = try self.findPackage(alloc, navc, .{});
     defer alloc.free(packages);
@@ -97,7 +97,10 @@ pub fn findLatestPackage(
 /// Read packages information from provided source. Expects Debian
 /// Control File format, same as R PACKAGES file. Returns number
 /// of packages found.
-pub fn read(self: *Repository, name: []const u8, source: []const u8) !usize {
+pub fn read(self: *Repository, name: []const u8, source: []const u8) (error{
+    OutOfMemory,
+    InvalidFormat,
+} || dcf.StanzaParser.Error || dcf.FieldParser.Error)!usize {
     const eql = std.ascii.eqlIgnoreCase;
 
     var count: usize = 0;
@@ -105,7 +108,7 @@ pub fn read(self: *Repository, name: []const u8, source: []const u8) !usize {
     // allocate a buffer large enough for maximum size of field
     // supported
     const buf = try self.alloc.alloc(u8, 16 * 1024);
-    defer allocator.free(buf);
+    defer self.alloc.free(buf);
 
     // parsers
     var stanzas = dcf.StanzaParser.init(source);
@@ -143,16 +146,15 @@ pub fn read(self: *Repository, name: []const u8, source: []const u8) !usize {
                 package.name = try self.strings.append(field.value);
             } else if (eql("version", field.name)) {
                 package.version_string = try self.strings.append(field.value);
-                package.version = try Version.parse(package.version_string);
+                package.version = try rlang.Version.parse(package.version_string);
             } else if (eql("depends", field.name)) {
-                // FIXME need to parse a string into a list of NameAndVersionConstraint
-
+                package.depends = try rlang.PackageSpec.parseListWithCapacity(self.alloc, field.value, 16);
             } else if (eql("suggests", field.name)) {
-                //
+                package.suggests = try rlang.PackageSpec.parseListWithCapacity(self.alloc, field.value, 16);
             } else if (eql("imports", field.name)) {
-                //
+                package.imports = try rlang.PackageSpec.parseListWithCapacity(self.alloc, field.value, 16);
             } else if (eql("linkingto", field.name)) {
-                //
+                package.linkingTo = try rlang.PackageSpec.parseListWithCapacity(self.alloc, field.value, 16);
             }
         }
 
@@ -162,97 +164,98 @@ pub fn read(self: *Repository, name: []const u8, source: []const u8) !usize {
             count += 1;
         }
     }
-}
-
-pub fn readOld(self: *Repository, name: []const u8, source: []const u8) !usize {
-    var count: usize = 0;
-    var parser = parse.Parser.init(self.alloc, &self.strings);
-    defer parser.deinit();
-    parser.parse(source) catch |err| switch (err) {
-        error.ParseError => |e| {
-            self.parse_error = parser.parse_error;
-            return e;
-        },
-        else => |e| {
-            return e;
-        },
-    };
-
-    // reserve estimated space and free before exit (empirical from CRAN PACKAGES)
-    try self.packages.ensureTotalCapacity(self.alloc, parser.nodes.items.len / 30);
-    defer self.packages.shrinkAndFree(self.alloc, self.packages.len);
-
-    // reserve working list of []NameAndVersionConstraint
-    var nav_list = try std.ArrayList(NameAndVersionConstraint).initCapacity(self.alloc, 16);
-    defer nav_list.deinit();
-
-    const empty_package: Package = .{ .repository = try self.strings.append(name) };
-    var result = empty_package;
-    // Note: result may have a different value by the time this defer
-    // is called before exiting this scope. The deinit is needed to
-    // avoid memory leaks in case of errors.
-    errdefer result.deinit(self.alloc);
-
-    const nodes = parser.nodes.items;
-    var saw_field = false;
-    var idx: usize = 0;
-    var node: Parser.Node = undefined;
-    while (true) : (idx += 1) {
-        node = nodes[idx];
-
-        switch (node) {
-            .eof => break,
-            .stanza => saw_field = false,
-            .stanza_end => {
-                if (saw_field) {
-                    // do not count empty stanzas
-                    try self.packages.append(self.alloc, result);
-                    result = empty_package;
-                    count += 1;
-                }
-                nav_list.clearRetainingCapacity();
-            },
-            .field => |field| {
-                saw_field = true;
-                if (std.mem.eql(u8, "Package", field.name)) {
-                    result.name = try parsePackageName(nodes, &idx, &self.strings);
-                } else if (std.mem.eql(u8, "Version", field.name)) {
-                    result.version = try parsePackageVersion(nodes, &idx);
-                    idx -= 1; // backtrack to parse version as string next
-                    result.version_string = try parsePackageVersionString(nodes, &idx, &self.strings);
-                } else if (std.mem.eql(u8, "Depends", field.name)) {
-                    if (result.depends.len != 0) {
-                        return self.parseError(result.name);
-                    }
-                    try parsePackages(nodes, &idx, &nav_list);
-                    result.depends = try nav_list.toOwnedSlice();
-                } else if (std.mem.eql(u8, "Suggests", field.name)) {
-                    if (result.suggests.len != 0) {
-                        return self.parseError(result.name);
-                    }
-                    try parsePackages(nodes, &idx, &nav_list);
-                    result.suggests = try nav_list.toOwnedSlice();
-                } else if (std.mem.eql(u8, "Imports", field.name)) {
-                    if (result.imports.len != 0) {
-                        return self.parseError(result.name);
-                    }
-                    try parsePackages(nodes, &idx, &nav_list);
-                    result.imports = try nav_list.toOwnedSlice();
-                } else if (std.mem.eql(u8, "LinkingTo", field.name)) {
-                    if (result.linkingTo.len != 0) {
-                        return self.parseError(result.name);
-                    }
-
-                    try parsePackages(nodes, &idx, &nav_list);
-                    result.linkingTo = try nav_list.toOwnedSlice();
-                }
-            },
-
-            else => continue,
-        }
-    }
     return count;
 }
+
+// pub fn readOld(self: *Repository, name: []const u8, source: []const u8) !usize {
+//     var count: usize = 0;
+//     var parser = parse.Parser.init(self.alloc, &self.strings);
+//     defer parser.deinit();
+//     parser.parse(source) catch |err| switch (err) {
+//         error.ParseError => |e| {
+//             self.parse_error = parser.parse_error;
+//             return e;
+//         },
+//         else => |e| {
+//             return e;
+//         },
+//     };
+
+//     // reserve estimated space and free before exit (empirical from CRAN PACKAGES)
+//     try self.packages.ensureTotalCapacity(self.alloc, parser.nodes.items.len / 30);
+//     defer self.packages.shrinkAndFree(self.alloc, self.packages.len);
+
+//     // reserve working list of []rlang.PackageSpec
+//     var nav_list = try std.ArrayList(rlang.PackageSpec).initCapacity(self.alloc, 16);
+//     defer nav_list.deinit();
+
+//     const empty_package: Package = .{ .repository = try self.strings.append(name) };
+//     var result = empty_package;
+//     // Note: result may have a different value by the time this defer
+//     // is called before exiting this scope. The deinit is needed to
+//     // avoid memory leaks in case of errors.
+//     errdefer result.deinit(self.alloc);
+
+//     const nodes = parser.nodes.items;
+//     var saw_field = false;
+//     var idx: usize = 0;
+//     var node: Parser.Node = undefined;
+//     while (true) : (idx += 1) {
+//         node = nodes[idx];
+
+//         switch (node) {
+//             .eof => break,
+//             .stanza => saw_field = false,
+//             .stanza_end => {
+//                 if (saw_field) {
+//                     // do not count empty stanzas
+//                     try self.packages.append(self.alloc, result);
+//                     result = empty_package;
+//                     count += 1;
+//                 }
+//                 nav_list.clearRetainingCapacity();
+//             },
+//             .field => |field| {
+//                 saw_field = true;
+//                 if (std.mem.eql(u8, "Package", field.name)) {
+//                     result.name = try parsePackageName(nodes, &idx, &self.strings);
+//                 } else if (std.mem.eql(u8, "Version", field.name)) {
+//                     result.version = try parsePackageVersion(nodes, &idx);
+//                     idx -= 1; // backtrack to parse version as string next
+//                     result.version_string = try parsePackageVersionString(nodes, &idx, &self.strings);
+//                 } else if (std.mem.eql(u8, "Depends", field.name)) {
+//                     if (result.depends.len != 0) {
+//                         return self.parseError(result.name);
+//                     }
+//                     try parsePackages(nodes, &idx, &nav_list);
+//                     result.depends = try nav_list.toOwnedSlice();
+//                 } else if (std.mem.eql(u8, "Suggests", field.name)) {
+//                     if (result.suggests.len != 0) {
+//                         return self.parseError(result.name);
+//                     }
+//                     try parsePackages(nodes, &idx, &nav_list);
+//                     result.suggests = try nav_list.toOwnedSlice();
+//                 } else if (std.mem.eql(u8, "Imports", field.name)) {
+//                     if (result.imports.len != 0) {
+//                         return self.parseError(result.name);
+//                     }
+//                     try parsePackages(nodes, &idx, &nav_list);
+//                     result.imports = try nav_list.toOwnedSlice();
+//                 } else if (std.mem.eql(u8, "LinkingTo", field.name)) {
+//                     if (result.linkingTo.len != 0) {
+//                         return self.parseError(result.name);
+//                     }
+
+//                     try parsePackages(nodes, &idx, &nav_list);
+//                     result.linkingTo = try nav_list.toOwnedSlice();
+//                 }
+//             },
+
+//             else => continue,
+//         }
+//     }
+//     return count;
+// }
 
 fn parseError(self: *Repository, message: []const u8) error{ParseError} {
     self.parse_error = .{
@@ -266,58 +269,58 @@ fn parseError(self: *Repository, message: []const u8) error{ParseError} {
     return error.ParseError;
 }
 
-fn parsePackageName(nodes: []Parser.Node, idx: *usize, strings: *StringStorage) ![]const u8 {
-    idx.* += 1;
-    switch (nodes[idx.*]) {
-        .name_and_version => |nv| {
-            return try strings.append(nv.name);
-        },
-        // expect .name_and_version immediately after .field for a Package field
-        else => unreachable,
-    }
-}
+// fn parsePackageName(nodes: []Parser.Node, idx: *usize, strings: *StringStorage) ![]const u8 {
+//     idx.* += 1;
+//     switch (nodes[idx.*]) {
+//         .name_and_version => |nv| {
+//             return try strings.append(nv.name);
+//         },
+//         // expect .name_and_version immediately after .field for a Package field
+//         else => unreachable,
+//     }
+// }
 
-fn parsePackageVersion(nodes: []Parser.Node, idx: *usize) !Version {
-    idx.* += 1;
-    switch (nodes[idx.*]) {
-        .string_node => |s| {
-            return try Version.parse(s.value);
-        },
-        // expect .string_node immediately after .field for a Version field
-        else => unreachable,
-    }
-}
+// fn parsePackageVersion(nodes: []Parser.Node, idx: *usize) !Version {
+//     idx.* += 1;
+//     switch (nodes[idx.*]) {
+//         .string_node => |s| {
+//             return try Version.parse(s.value);
+//         },
+//         // expect .string_node immediately after .field for a Version field
+//         else => unreachable,
+//     }
+// }
 
-fn parsePackageVersionString(nodes: []Parser.Node, idx: *usize, strings: *StringStorage) ![]const u8 {
-    idx.* += 1;
-    switch (nodes[idx.*]) {
-        .string_node => |s| {
-            return try strings.append(s.value);
-        },
-        // expect .string_node immediately after .field for a Version field
-        else => unreachable,
-    }
-}
+// fn parsePackageVersionString(nodes: []Parser.Node, idx: *usize, strings: *StringStorage) ![]const u8 {
+//     idx.* += 1;
+//     switch (nodes[idx.*]) {
+//         .string_node => |s| {
+//             return try strings.append(s.value);
+//         },
+//         // expect .string_node immediately after .field for a Version field
+//         else => unreachable,
+//     }
+// }
 
-fn parsePackages(
-    nodes: []Parser.Node,
-    idx: *usize,
-    list: *std.ArrayList(NameAndVersionConstraint),
-) !void {
-    idx.* += 1;
-    while (true) : (idx.* += 1) {
-        const node = nodes[idx.*];
-        switch (node) {
-            .name_and_version => |nv| {
-                try list.append(NameAndVersionConstraint{
-                    .name = nv.name,
-                    .version_constraint = nv.version_constraint,
-                });
-            },
-            else => break,
-        }
-    }
-}
+// fn parsePackages(
+//     nodes: []Parser.Node,
+//     idx: *usize,
+//     list: *std.ArrayList(rlang.PackageSpec),
+// ) !void {
+//     idx.* += 1;
+//     while (true) : (idx.* += 1) {
+//         const node = nodes[idx.*];
+//         switch (node) {
+//             .name_and_version => |nv| {
+//                 try list.append(rlang.PackageSpec{
+//                     .name = nv.name,
+//                     .version_constraint = nv.version_constraint,
+//                 });
+//             },
+//             else => break,
+//         }
+//     }
+// }
 
 //
 // -- iterator -----------------------------------------------------------
@@ -326,13 +329,13 @@ fn parsePackages(
 /// Represents a single package and its dependencies.
 pub const Package = struct {
     name: []const u8 = "",
-    version: Version = .{},
+    version: rlang.Version = .{},
     version_string: []const u8 = "",
     repository: []const u8 = "",
-    depends: []NameAndVersionConstraint = &.{},
-    suggests: []NameAndVersionConstraint = &.{},
-    imports: []NameAndVersionConstraint = &.{},
-    linkingTo: []NameAndVersionConstraint = &.{},
+    depends: []rlang.PackageSpec = &.{},
+    suggests: []rlang.PackageSpec = &.{},
+    imports: []rlang.PackageSpec = &.{},
+    linkingTo: []rlang.PackageSpec = &.{},
 
     /// Deinit a package that was allocated. May be called multiple
     /// times.
@@ -382,17 +385,17 @@ pub const Iterator = struct {
 pub fn transitiveDependencies(
     self: Repository,
     alloc: Allocator,
-    navc: NameAndVersionConstraint,
-) error{ OutOfMemory, NotFound }![]NameAndVersionConstraint {
+    navc: rlang.PackageSpec,
+) error{ OutOfMemory, NotFound }![]rlang.PackageSpec {
     var arena = std.heap.ArenaAllocator.init(alloc);
     defer arena.deinit();
 
-    var out = NameAndVersionConstraintHashMap.init(alloc);
+    var out = rlang.PackageSpecHashMap.init(alloc);
     defer out.deinit();
 
     if (try self.findLatestPackage(alloc, navc)) |root_package| {
         try self.doTransitiveDependencies(&arena, root_package, &out);
-        return try alloc.dupe(NameAndVersionConstraint, out.keys());
+        return try alloc.dupe(rlang.PackageSpec, out.keys());
     } else return error.NotFound;
 }
 
@@ -404,18 +407,18 @@ pub fn transitiveDependencies(
 pub fn transitiveDependenciesNoBase(
     self: Repository,
     alloc: Allocator,
-    navc: NameAndVersionConstraint,
-) error{ OutOfMemory, NotFound }![]NameAndVersionConstraint {
+    navc: rlang.PackageSpec,
+) error{ OutOfMemory, NotFound }![]rlang.PackageSpec {
     var arena = std.heap.ArenaAllocator.init(alloc);
     defer arena.deinit();
 
-    var out = NameAndVersionConstraintHashMap.init(alloc);
+    var out = rlang.PackageSpecHashMap.init(alloc);
     defer out.deinit();
 
     if (try self.findLatestPackage(alloc, navc)) |root_package| {
         try self.doTransitiveDependencies(&arena, root_package, &out);
 
-        var result = try std.ArrayList(NameAndVersionConstraint).initCapacity(alloc, out.count());
+        var result = try std.ArrayList(rlang.PackageSpec).initCapacity(alloc, out.count());
         for (out.keys()) |x| {
             if (Tools.isBasePackage(x.name)) continue;
             if (Tools.isRecommendedPackage(x.name)) continue;
@@ -429,7 +432,7 @@ fn doTransitiveDependencies(
     self: Repository,
     arena: *std.heap.ArenaAllocator,
     package: Package,
-    out: *NameAndVersionConstraintHashMap,
+    out: *rlang.PackageSpecHashMap,
 ) !void {
     for (package.depends) |navc| {
         if (Tools.isBasePackage(navc.name)) continue;
@@ -580,12 +583,8 @@ const std = @import("std");
 const mem = std.mem;
 const mos = @import("mos");
 const dcf = @import("dcf");
+const rlang = @import("rlang");
 const testing = std.testing;
 const Allocator = std.mem.Allocator;
 
 const StringStorage = @import("string_storage.zig").StringStorage;
-
-pub const version = @import("version.zig");
-const NameAndVersionConstraint = version.NameAndVersionConstraint;
-const Version = version.Version;
-const NameAndVersionConstraintHashMap = version.NameAndVersionConstraintHashMap;

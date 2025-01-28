@@ -32,7 +32,7 @@ pub fn isRecommendedPackage(name: []const u8) bool {
 
 /// Return index into repository packages for a package which
 /// matches the requested constraint, or null.
-pub fn matchPackage(index: Index, package: NameAndVersionConstraint) ?usize {
+pub fn matchPackage(index: Index, package: rlang.PackageSpec) ?usize {
     return if (index.items.get(package.name)) |entry| switch (entry) {
         .single => |e| if (package.version_constraint.satisfied(e.version)) e.index else null,
         .multiple => |es| b: {
@@ -49,9 +49,9 @@ pub fn matchPackage(index: Index, package: NameAndVersionConstraint) ?usize {
 pub fn unsatisfied(
     index: Index,
     alloc: Allocator,
-    require: []NameAndVersionConstraint,
-) error{OutOfMemory}![]NameAndVersionConstraint {
-    var out = std.ArrayList(NameAndVersionConstraint).init(alloc);
+    require: []rlang.PackageSpec,
+) error{OutOfMemory}![]rlang.PackageSpec {
+    var out = std.ArrayList(rlang.PackageSpec).init(alloc);
     defer out.deinit();
 
     for (require) |d| top: {
@@ -81,9 +81,9 @@ pub fn unmetDependencies(
     alloc: Allocator,
     repo: Repository,
     root: []const u8,
-) error{ OutOfMemory, NotFound }![]NameAndVersionConstraint {
+) error{ OutOfMemory, NotFound }![]rlang.PackageSpec {
     if (try repo.findLatestPackage(alloc, .{ .name = root })) |p| {
-        var broken = std.ArrayList(NameAndVersionConstraint).init(alloc);
+        var broken = std.ArrayList(rlang.PackageSpec).init(alloc);
         defer broken.deinit();
 
         const deps = try index.unsatisfied(alloc, p.depends);
@@ -107,8 +107,8 @@ const Allocator = std.mem.Allocator;
 
 const Index = @import("Index.zig");
 
-const version = @import("../version.zig");
-const NameAndVersionConstraint = version.NameAndVersionConstraint;
+const rlang = @import("rlang");
+const PackageSpec = rlang.PackageSpec;
 
 const repository = @import("../repository_tools.zig");
 const Repository = repository.Repository;

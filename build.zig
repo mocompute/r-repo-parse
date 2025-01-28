@@ -43,6 +43,11 @@ pub fn build(b: *Build) !void {
         .optimize = optimize,
     }).module("dcf");
 
+    const rlang = b.dependency("rlang", .{
+        .target = target,
+        .optimize = optimize,
+    }).module("rlang");
+
     const cmdline = b.lazyDependency("cmdline", .{
         .target = target,
         .optimize = optimize,
@@ -63,6 +68,7 @@ pub fn build(b: *Build) !void {
     });
     mod.addImport("mos", mos);
     mod.addImport("dcf", dcf);
+    mod.addImport("rlang", rlang);
 
     // -- end module ----------------------------------------------------------
 
@@ -91,12 +97,15 @@ pub fn build(b: *Build) !void {
     // -- begin test ----------------------------------------------------------
 
     const lib_unit_tests = b.addTest(.{
-        .root_source_file = b.path("src/root.zig"),
-        .target = target,
-        .optimize = optimize,
+        .root_module = mod,
+        // .root_source_file = b.path("src/root.zig"),
+        // .target = target,
+        // .optimize = optimize,
     });
-    lib_unit_tests.root_module.addImport("mos", mos);
-    lib_unit_tests.linkLibC();
+    // lib_unit_tests.root_module.addImport("mos", mos);
+    // lib_unit_tests.root_module.addImport("dcf", dcf);
+    // lib_unit_tests.root_module.addImport("rlang", rlang);
+    // lib_unit_tests.linkLibC();
 
     const run_lib_unit_tests = b.addRunArtifact(lib_unit_tests);
 
