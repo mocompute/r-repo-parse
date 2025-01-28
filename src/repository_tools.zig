@@ -104,56 +104,51 @@ test "PACKAGES sanity check" {
     const path = "PACKAGES.gz";
     std.fs.cwd().access(path, .{}) catch return;
     const alloc = testing.allocator;
-    const source: ?[]const u8 = try mos.file.readFileMaybeGzip(alloc, path);
-    defer if (source) |s| alloc.free(s);
+    const source = try mos.file.readFileMaybeGzip(alloc, path);
+    defer alloc.free(source);
 
     var repo = try Repository.init(alloc);
     defer repo.deinit();
 
-    if (source) |s| {
-        _ = try repo.read("test", s);
-        // FIXME: make more sane this thing with string storage and string lifetime expectations.
+    const count = try repo.read("test", source);
+    std.debug.print("read {} packages.\n", .{count});
 
-        // alloc.free(s);
-        // source = null;
+    var index = try Repository.Index.init(repo);
+    defer index.deinit();
+
+    var unsatisfied = std.StringHashMap(std.ArrayList(rlang.PackageSpec)).init(alloc);
+    defer {
+        var it = unsatisfied.iterator();
+        while (it.next()) |x| x.value_ptr.deinit();
+        unsatisfied.deinit();
     }
 
-    // var index = try Repository.Index.init(repo);
-    // defer index.deinit();
+    var it = repo.iter();
+    while (it.next()) |p| {
+        const deps = try Repository.Tools.unsatisfied(index, alloc, p.depends);
+        defer alloc.free(deps);
+        // const impo = try Repository.Tools.unsatisfied(index, alloc, p.imports);
+        // defer alloc.free(impo);
+        // const link = try Repository.Tools.unsatisfied(index, alloc, p.linkingTo);
+        // defer alloc.free(link);
 
-    // var unsatisfied = std.StringHashMap(std.ArrayList(rlang.PackageSpec)).init(alloc);
-    // defer {
-    //     var it = unsatisfied.iterator();
-    //     while (it.next()) |x| x.value_ptr.deinit();
-    //     unsatisfied.deinit();
-    // }
+        // const res = try unsatisfied.getOrPut(p.name);
+        // if (!res.found_existing) res.value_ptr.* = std.ArrayList(rlang.PackageSpec).init(alloc);
+        // try res.value_ptr.appendSlice(deps);
+        // try res.value_ptr.appendSlice(impo);
+        // try res.value_ptr.appendSlice(link);
+    }
 
-    // var it = repo.iter();
-    // while (it.next()) |p| {
-    //     const deps = try Repository.Tools.unsatisfied(index, alloc, p.depends);
-    //     defer alloc.free(deps);
-    //     const impo = try Repository.Tools.unsatisfied(index, alloc, p.imports);
-    //     defer alloc.free(impo);
-    //     const link = try Repository.Tools.unsatisfied(index, alloc, p.linkingTo);
-    //     defer alloc.free(link);
-
-    //     const res = try unsatisfied.getOrPut(p.name);
-    //     if (!res.found_existing) res.value_ptr.* = std.ArrayList(rlang.PackageSpec).init(alloc);
-    //     try res.value_ptr.appendSlice(deps);
-    //     try res.value_ptr.appendSlice(impo);
-    //     try res.value_ptr.appendSlice(link);
-    // }
-
-    // var un_it = unsatisfied.iterator();
-    // while (un_it.next()) |u| {
-    //     for (u.value_ptr.items) |nav| {
-    //         std.debug.print("Package '{s}' dependency '{s}' version '{s}' not satisfied.\n", .{
-    //             u.key_ptr.*,
-    //             nav.name,
-    //             nav.version_constraint,
-    //         });
-    //     }
-    // }
+    var un_it = unsatisfied.iterator();
+    while (un_it.next()) |u| {
+        for (u.value_ptr.items) |nav| {
+            std.debug.print("Package '{s}' dependency '{s}' version '{s}' not satisfied.\n", .{
+                u.key_ptr.*,
+                nav.name,
+                nav.version_constraint,
+            });
+        }
+    }
 }
 
 test "find latest package" {

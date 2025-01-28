@@ -70,13 +70,9 @@ pub const StringStorage = struct {
         const alloc = self.arena.allocator();
 
         // dupe the string so the caller can release its memory
-        const our_key = try alloc.dupe(u8, string);
+        const ours = try alloc.dupe(u8, string);
 
-        // append and capture slice to new slice
-        const ours = try self.arena.allocator().alloc(u8, string.len);
-        @memcpy(ours, string);
-
-        try self.index.putNoClobber(our_key, ours);
+        try self.index.putNoClobber(ours, ours);
 
         return ours;
     }
@@ -84,7 +80,7 @@ pub const StringStorage = struct {
     pub const Self = @This();
 };
 
-test "basic usage" {
+test "string_storage basic usage" {
     const alloc = std.testing.allocator;
 
     var ss = try StringStorage.init(alloc, std.heap.page_allocator);

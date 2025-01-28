@@ -1,6 +1,7 @@
 alloc: Allocator,
 strings: StringStorage,
 packages: std.MultiArrayList(Package),
+parse_error: ?ParseError = null,
 stanza_error: ?dcf.StanzaParser.ErrorInfo = null,
 field_error: ?dcf.FieldParser.ErrorInfo = null,
 
@@ -94,12 +95,13 @@ pub fn findLatestPackage(
     }
 }
 
-/// Read packages information from provided source. Expects Debian
-/// Control File format, same as R PACKAGES file. Returns number
-/// of packages found.
+/// Read packages information from provided source. Source lifetime
+/// must exceed Repository lifetime. Expects Debian Control File
+/// format, same as R PACKAGES file. Returns number of packages found.
 pub fn read(self: *Repository, name: []const u8, source: []const u8) (error{
     OutOfMemory,
     InvalidFormat,
+    ParseError,
 } || dcf.StanzaParser.Error || dcf.FieldParser.Error)!usize {
     const eql = std.ascii.eqlIgnoreCase;
 
@@ -109,6 +111,10 @@ pub fn read(self: *Repository, name: []const u8, source: []const u8) (error{
     // supported
     const buf = try self.alloc.alloc(u8, 16 * 1024);
     defer self.alloc.free(buf);
+
+    // reserve estimated space required for packages and free before exit
+    try self.packages.ensureTotalCapacity(self.alloc, source.len / 1024);
+    defer self.packages.shrinkAndFree(self.alloc, self.packages.len);
 
     // parsers
     var stanzas = dcf.StanzaParser.init(source);
@@ -143,18 +149,36 @@ pub fn read(self: *Repository, name: []const u8, source: []const u8) (error{
             };
 
             if (eql("package", field.name)) {
-                package.name = try self.strings.append(field.value);
+                const owned = try self.strings.append(field.value);
+                package.name = owned;
             } else if (eql("version", field.name)) {
-                package.version_string = try self.strings.append(field.value);
+                const owned = try self.strings.append(field.value);
+                package.version_string = try self.strings.append(owned);
                 package.version = try rlang.Version.parse(package.version_string);
             } else if (eql("depends", field.name)) {
-                package.depends = try rlang.PackageSpec.parseListWithCapacity(self.alloc, field.value, 16);
+                if (package.depends.len != 0) {
+                    return self.parseError(package.name);
+                }
+                const owned = try self.strings.append(field.value);
+                package.depends = try rlang.PackageSpec.parseListWithCapacity(self.alloc, owned, 16);
             } else if (eql("suggests", field.name)) {
-                package.suggests = try rlang.PackageSpec.parseListWithCapacity(self.alloc, field.value, 16);
+                if (package.suggests.len != 0) {
+                    return self.parseError(package.name);
+                }
+                const owned = try self.strings.append(field.value);
+                package.suggests = try rlang.PackageSpec.parseListWithCapacity(self.alloc, owned, 16);
             } else if (eql("imports", field.name)) {
-                package.imports = try rlang.PackageSpec.parseListWithCapacity(self.alloc, field.value, 16);
+                if (package.imports.len != 0) {
+                    return self.parseError(package.name);
+                }
+                const owned = try self.strings.append(field.value);
+                package.imports = try rlang.PackageSpec.parseListWithCapacity(self.alloc, owned, 16);
             } else if (eql("linkingto", field.name)) {
-                package.linkingTo = try rlang.PackageSpec.parseListWithCapacity(self.alloc, field.value, 16);
+                if (package.linkingTo.len != 0) {
+                    return self.parseError(package.name);
+                }
+                const owned = try self.strings.append(field.value);
+                package.linkingTo = try rlang.PackageSpec.parseListWithCapacity(self.alloc, owned, 16);
             }
         }
 
@@ -260,14 +284,15 @@ pub fn read(self: *Repository, name: []const u8, source: []const u8) (error{
 fn parseError(self: *Repository, message: []const u8) error{ParseError} {
     self.parse_error = .{
         .message = message,
-        .token = .{
-            .tag = .invalid,
-            .loc = .{ .start = 0, .end = 0 },
-        },
         .line = 0,
     };
     return error.ParseError;
 }
+
+const ParseError = struct {
+    message: []const u8 = "",
+    line: usize = 0,
+};
 
 // fn parsePackageName(nodes: []Parser.Node, idx: *usize, strings: *StringStorage) ![]const u8 {
 //     idx.* += 1;
@@ -344,10 +369,7 @@ pub const Package = struct {
         alloc.free(self.suggests);
         alloc.free(self.imports);
         alloc.free(self.linkingTo);
-        self.depends = &.{};
-        self.suggests = &.{};
-        self.imports = &.{};
-        self.linkingTo = &.{};
+        self.* = undefined;
     }
 };
 

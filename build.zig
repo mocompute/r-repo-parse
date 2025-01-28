@@ -96,16 +96,16 @@ pub fn build(b: *Build) !void {
 
     // -- begin test ----------------------------------------------------------
 
+    const test_filters: []const []const u8 = b.option(
+        []const []const u8,
+        "test_filter",
+        "Skip tests that do not match any of the specified filters",
+    ) orelse &.{};
+
     const lib_unit_tests = b.addTest(.{
         .root_module = mod,
-        // .root_source_file = b.path("src/root.zig"),
-        // .target = target,
-        // .optimize = optimize,
+        .filters = test_filters,
     });
-    // lib_unit_tests.root_module.addImport("mos", mos);
-    // lib_unit_tests.root_module.addImport("dcf", dcf);
-    // lib_unit_tests.root_module.addImport("rlang", rlang);
-    // lib_unit_tests.linkLibC();
 
     const run_lib_unit_tests = b.addRunArtifact(lib_unit_tests);
 
