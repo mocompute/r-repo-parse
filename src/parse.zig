@@ -25,10 +25,10 @@ const Allocator = std.mem.Allocator;
 
 const StringStorage = @import("string_storage.zig").StringStorage;
 
-const version = @import("version.zig");
-const Version = version.Version;
-const Constraint = version.Operator;
-const VersionConstraint = version.VersionConstraint;
+const rlang = @import("rlang");
+const Version = rlang.Version;
+const Constraint = rlang.Operator;
+const VersionConstraint = rlang.VersionConstraint;
 
 /// Parser
 ///

@@ -17,9 +17,7 @@
 
 const std = @import("std");
 
-pub const version = @import("version.zig");
 pub const repository = @import("repository_tools.zig");
-pub const parse = @import("parse.zig");
 pub const string_storage = @import("string_storage.zig");
 pub const rlang_parse = @import("rlang_parse.zig");
 
@@ -28,9 +26,7 @@ pub const Authors = @import("Authors.zig");
 pub const StringStorage = string_storage.StringStorage;
 
 test {
-    _ = version;
     _ = repository;
-    _ = parse;
     _ = string_storage;
     _ = rlang_parse;
     _ = Authors;
