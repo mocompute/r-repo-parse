@@ -132,7 +132,6 @@ pub fn read(self: *Repository, name: []const u8, source: []const u8) (error{
             error.Eof => break,
             else => |e| {
                 self.stanza_error = stanza_error;
-                std.debug.print("unexpected stanza error: {}", .{e});
                 return e;
             },
         };

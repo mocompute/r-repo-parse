@@ -703,79 +703,88 @@ pub fn read(self: *Authors, source: []const u8, strings: *StringStorage) ![]LogI
     defer arena.deinit();
     const alloc = arena.allocator();
 
-    // parse DCF
-    var parser = Parser.init(arena.allocator(), strings);
-    defer parser.deinit();
-    try parser.parse(source);
+    // allocate a buffer large enough for maximum size of field
+    // supported
+    const buf = try self.alloc.alloc(u8, 16 * 1024);
+    defer self.alloc.free(buf);
 
-    // iterate through parsed stanzas.
+    // parsers
+    var stanzas = dcf.StanzaParser.init(source);
+    var stanza_error = dcf.StanzaParser.ErrorInfo.empty;
+    var fields = dcf.FieldParser.init("", buf);
+    var field_error = dcf.FieldParser.ErrorInfo.empty;
 
-    const nodes = parser.nodes.items;
-    var index: usize = 0;
+    // state
     var package_name: ?[]const u8 = null;
     var prev_package_name: ?[]const u8 = null;
     var authors_source: ?[]const u8 = null;
-    while (true) : (index += 1) switch (nodes[index]) {
-        .eof => break,
-        .stanza_end => {
-            // parse authors field if any
-            if (authors_source) |auth_source| {
-                var rtokenizer = RTokenizer.init(auth_source, strings);
-                defer rtokenizer.deinit();
-                var rparser = RParser.init(alloc, &rtokenizer, strings);
-                defer rparser.deinit();
 
-                switch (try rparser.next()) {
-                    .ok => |ok| switch (ok.node) {
-                        .function_call => |fc|
-                        // outer function can be c() or person()
-                        if (std.mem.eql(u8, "c", fc.name)) {
-                            for (fc.positional) |fa|
-                                try self.outerCArgument(fa, ok.loc, package_name.?, &log);
+    // iterate through parsed stanzas.
 
-                            // named arguments in c(), ignore the names
-                            for (fc.named) |na|
-                                try self.outerCArgument(na.value, ok.loc, package_name.?, &log);
-                        } else if (std.mem.eql(u8, "person", fc.name)) {
-                            try self.db.addFromFunctionCall(fc, ok.loc, package_name.?, &log);
-                        } else {
-                            try logWarn(&log, .expected_function, ok.loc, package_name.?);
+    while (stanzas.next(&stanza_error)) |stanza| {
+        fields.reset(stanza);
+
+        while (fields.next(&field_error)) |field| { //
+            if (eql("package", field.name)) {
+                //
+                const owned = try strings.append(field.value);
+                package_name = owned;
+                try logInfo(&log, .package, 0, package_name.?);
+            } else if (eql("authors@r", field.name)) {
+                // save authors@r field data to process at end of stanza.
+                const owned = try strings.append(field.value);
+
+                if (authors_source != null) try logWarn(&log, .multiple_authors_r_fields, 0, package_name orelse "<unknown>");
+                try logInfo(&log, .authors_at_r, 0, package_name orelse "<unknown>");
+
+                authors_source = owned;
+            }
+        } else |err| switch (err) {
+            error.Eof => {
+                // parse authors field if any
+                if (authors_source) |auth_source| {
+                    var rtokenizer = RTokenizer.init(auth_source, strings);
+                    defer rtokenizer.deinit();
+                    var rparser = RParser.init(alloc, &rtokenizer, strings);
+                    defer rparser.deinit();
+
+                    switch (try rparser.next()) {
+                        .ok => |ok| switch (ok.node) {
+                            .function_call => |fc|
+                            // outer function can be c() or person()
+                            if (std.mem.eql(u8, "c", fc.name)) {
+                                for (fc.positional) |fa|
+                                    try self.outerCArgument(fa, ok.loc, package_name.?, &log);
+
+                                // named arguments in c(), ignore the names
+                                for (fc.named) |na|
+                                    try self.outerCArgument(na.value, ok.loc, package_name.?, &log);
+                            } else if (std.mem.eql(u8, "person", fc.name)) {
+                                try self.db.addFromFunctionCall(fc, ok.loc, package_name.?, &log);
+                            } else {
+                                try logWarn(&log, .expected_function, ok.loc, package_name.?);
+                            },
+
+                            .function_arg => try logWarn(&log, .expected_function, ok.loc, package_name.?),
                         },
+                        .err => |e| try logParseError(&log, e, package_name),
+                    } // switch
+                } // if (authors_source)
 
-                        .function_arg => try logWarn(&log, .expected_function, ok.loc, package_name.?),
-                    },
-                    .err => |e| try logParseError(&log, e, package_name),
-                }
-            } else if (package_name) |pname| {
-                try logInfo(&log, .no_authors_at_r, 0, pname);
-            } else {
-                try logWarn(&log, .no_package, 0, "");
-            }
+                // reset package name and authors_source
+                prev_package_name = package_name;
+                package_name = null;
+                authors_source = null;
+            },
+            else => |e| return e,
+        }
+    } // while (stanzas)
 
-            // reset package name and authors_source
-            prev_package_name = package_name;
-            package_name = null;
-            authors_source = null;
-        },
-        .field => |field| if (eql("package", field.name)) {
-            package_name = parsePackageName(nodes, &index, strings) catch |err| {
-                try logErr(&log, .package, 0, @errorName(err));
-                continue;
-            };
-            try logInfo(&log, .package, 0, package_name.?);
-        } else if (eql("authors@r", field.name)) {
-            // save authors@r field data to process at end of stanza.
-            if (authors_source != null) try logWarn(&log, .multiple_authors_r_fields, 0, package_name orelse "<unknown>");
-            try logInfo(&log, .authors_at_r, 0, package_name orelse "<unknown>");
+    else |err| switch (err) {
+        error.Eof => {},
+        else => |e| return e,
+    }
 
-            index += 1;
-            switch (nodes[index]) {
-                .string_node => |s| authors_source = s.value,
-                else => try logErr(&log, .authors_at_r_wrong_type, 0, package_name orelse "<unknown>"),
-            }
-        },
-        else => {},
-    };
     return try log.toOwnedSlice();
 }
 
@@ -808,16 +817,6 @@ fn logWarn(log: *LogItems, tag: LogWarnTag, loc: usize, package_name: []const u8
 }
 fn logErr(log: *LogItems, tag: LogErrTag, loc: usize, package_name: []const u8) !void {
     try log.append(.{ .tag = .{ .err = tag }, .message = package_name, .loc = loc });
-}
-
-fn parsePackageName(nodes: []Parser.Node, idx: *usize, strings: *StringStorage) ![]const u8 {
-    idx.* += 1;
-    switch (nodes[idx.*]) {
-        .name_and_version => |nv| return try strings.append(nv.name),
-
-        // expect .name_and_version immediately after .field for a Package field
-        else => unreachable,
-    }
 }
 
 test "Authors" {
@@ -932,7 +931,7 @@ test "Authors" {
     authors.db.debugPrint();
 }
 
-test "logging" {
+test "Authors logging" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const alloc = arena.allocator();
@@ -962,7 +961,7 @@ test "logging" {
     authors.db.debugPrint();
 }
 
-test "read authors from PACKAGES-full.gz" {
+test "Authors read authors from PACKAGES-full.gz" {
     if (false) {
         const mos = @import("mos");
 
@@ -1003,8 +1002,7 @@ const Allocator = std.mem.Allocator;
 
 const StringStorage = @import("string_storage.zig").StringStorage;
 
-const parse = @import("parse.zig");
-const Parser = parse.Parser;
+const dcf = @import("dcf");
 
 const rlang_parse = @import("rlang_parse.zig");
 const RTokenizer = rlang_parse.Tokenizer;
