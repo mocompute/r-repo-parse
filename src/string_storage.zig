@@ -22,37 +22,53 @@ const Allocator = std.mem.Allocator;
 const ArenaAllocator = std.heap.ArenaAllocator;
 const StringHashMap = std.StringHashMap;
 
+/// Arena storage for de-duplicated strings. Strings are copied to the
+/// arena, and an index is maintained in a StringHashMap to avoid
+/// multiple copies of the same string. Use `append` to add a string
+/// or look up an existing string. A slice is returned.
 pub const StringStorage = struct {
     alloc: Allocator,
     arena: ArenaAllocator,
     index: std.StringHashMap([]u8),
 
+    /// Use alloc to expand the StringHashMap, and use child_allocator
+    /// to expand the arena.
     pub fn init(alloc: Allocator, child_allocator: Allocator) !Self {
         return StringStorage.initCapacity(alloc, child_allocator, 0);
     }
 
+    /// Use alloc to expand the StringHashMap, and use child_allocator
+    /// to expand the arena. ArenaAllocator is pre-allocated with the
+    /// requested capacity, and the StringHashMap is preheated.
     pub fn initCapacity(alloc: Allocator, child_allocator: Allocator, capacity: usize) !Self {
         var arena = ArenaAllocator.init(child_allocator);
+        var index = StringHashMap([]u8).init(alloc); // not arena
 
         if (capacity != 0) {
             // reserve capacity/preheat
             _ = try arena.allocator().alloc(u8, capacity);
             if (!arena.reset(.retain_capacity)) return error.OutOfMemory;
+
+            // StringHashMap has a reduced capacity and defines its own Size type (u32)
+            if (capacity > std.math.maxInt(@TypeOf(index).Size)) return error.OutOfMemory;
+            try index.ensureTotalCapacity(@intCast(capacity));
         }
 
         return .{
             .alloc = alloc,
             .arena = arena,
-            .index = StringHashMap([]u8).init(alloc), // not arena
+            .index = index,
         };
     }
 
+    /// Release buffers and invalidate our struct.
     pub fn deinit(self: *Self) void {
         self.index.deinit();
         self.arena.deinit();
         self.* = undefined;
     }
 
+    /// Reset arena and index, returing true if successful.
     pub fn reset(self: *Self, mode: ArenaAllocator.ResetMode) bool {
         if (self.arena.reset(mode)) {
             self.index.clearRetainingCapacity();
@@ -62,7 +78,9 @@ pub const StringStorage = struct {
         }
     }
 
-    pub fn append(self: *Self, string: anytype) ![]u8 {
+    /// Return a slice pointing to our managed storage of string data,
+    /// copying string to our arena if necessary.
+    pub fn append(self: *Self, string: anytype) ![]const u8 {
         // if the string is in our index, return it
         if (self.index.get(string)) |v|
             return v;
