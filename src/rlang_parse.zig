@@ -688,7 +688,7 @@ pub const Parser = struct {
 
 // -- tests --------------------------------------------------------
 
-test "tokenize" {
+test "rlang tokenize" {
     const alloc = std.testing.allocator;
     const source =
         \\c()
@@ -708,7 +708,7 @@ test "tokenize" {
     });
 }
 
-test "tokenize 2" {
+test "rlang tokenize 2" {
     const alloc = std.testing.allocator;
     const source =
         \\     c(
@@ -760,7 +760,7 @@ test "tokenize 2" {
     });
 }
 
-test "tokenize parenthesized string" {
+test "rlang tokenize parenthesized string" {
     const alloc = std.testing.allocator;
     const source =
         \\ person(("parenthesized string"))
@@ -783,7 +783,7 @@ test "tokenize parenthesized string" {
     });
 }
 
-test "tokenize quoted named argument" {
+test "rlang tokenize quoted named argument" {
     const alloc = std.testing.allocator;
     const source =
         \\ person("argument" = "value")
@@ -806,7 +806,7 @@ test "tokenize quoted named argument" {
     });
 }
 
-test "tokenize named vector argument" {
+test "rlang tokenize named vector argument" {
     const alloc = std.testing.allocator;
     const source =
         \\ person(given = c("first", "second"))
@@ -833,7 +833,7 @@ test "tokenize named vector argument" {
         .close_round,
     });
 }
-test "tokenize comment = NULL" {
+test "rlang tokenize comment = NULL" {
     const alloc = std.testing.allocator;
     const source =
         \\    person("Xiurui", "Zhu", , "xxx@abc.def", role = c("aut", "cre"),
@@ -872,7 +872,7 @@ test "tokenize comment = NULL" {
     });
 }
 
-test "parse named vector argument" {
+test "rlang parse named vector argument" {
     const alloc = std.testing.allocator;
     var arena = std.heap.ArenaAllocator.init(alloc);
     defer arena.deinit();
@@ -893,7 +893,7 @@ test "parse named vector argument" {
     try doParseDebug(&parser);
 }
 
-test "parse parenthesized string" {
+test "rlang parse parenthesized string" {
     const alloc = std.testing.allocator;
     var arena = std.heap.ArenaAllocator.init(alloc);
     defer arena.deinit();
@@ -913,7 +913,7 @@ test "parse parenthesized string" {
     try doParseDebug(&parser);
 }
 
-test "parse quoted named argument" {
+test "rlang parse quoted named argument" {
     const alloc = std.testing.allocator;
     var arena = std.heap.ArenaAllocator.init(alloc);
     defer arena.deinit();
@@ -933,7 +933,7 @@ test "parse quoted named argument" {
     try doParseDebug(&parser);
 }
 
-test "parse comment = NULL" {
+test "rlang parse comment = NULL" {
     const alloc = std.testing.allocator;
     var arena = std.heap.ArenaAllocator.init(alloc);
     defer arena.deinit();
@@ -953,7 +953,7 @@ test "parse comment = NULL" {
     try doParseDebug(&parser);
 }
 
-test "parse email=)" {
+test "rlang parse email=)" {
     const alloc = std.testing.allocator;
     var arena = std.heap.ArenaAllocator.init(alloc);
     defer arena.deinit();
@@ -971,7 +971,7 @@ test "parse email=)" {
 
     try doParseDebug(&parser);
 }
-test "parse email=," {
+test "rlang parse email=," {
     const alloc = std.testing.allocator;
     var arena = std.heap.ArenaAllocator.init(alloc);
     defer arena.deinit();
@@ -990,7 +990,7 @@ test "parse email=," {
     try doParseDebug(&parser);
 }
 
-test "parse" {
+test "rlang parse" {
     const alloc = std.testing.allocator;
     var arena = std.heap.ArenaAllocator.init(alloc);
     defer arena.deinit();
@@ -1018,7 +1018,7 @@ test "parse" {
     try doParseDebug(&parser);
 }
 
-test "parse 1" {
+test "rlang parse 1" {
     const alloc = std.testing.allocator;
     var arena = std.heap.ArenaAllocator.init(alloc);
     defer arena.deinit();
