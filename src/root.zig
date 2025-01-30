@@ -16,18 +16,16 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 const std = @import("std");
+const mos = @import("mos");
 
 pub const repository = @import("repository_tools.zig");
-pub const string_storage = @import("string_storage.zig");
 pub const rlang_parse = @import("rlang_parse.zig");
+pub const Authors = @import("Authors.zig");
 
 pub const Repository = repository.Repository;
-pub const Authors = @import("Authors.zig");
-pub const StringStorage = string_storage.StringStorage;
 
 test {
     _ = repository;
-    _ = string_storage;
     _ = rlang_parse;
     _ = Authors;
 }

@@ -31,7 +31,7 @@ test "PACKAGES.gz" {
 
     var timer = try std.time.Timer.start();
 
-    var strings = try StringStorage.init(alloc, std.heap.page_allocator);
+    var strings = try UniqueStorage.init(alloc, std.heap.page_allocator);
     defer strings.deinit();
     // var parser = parse.Parser.init(alloc, &strings);
     // defer parser.deinit();
@@ -285,7 +285,7 @@ test "versions with minus" {
     //     }
     // }
     // {
-    //     var strings = try StringStorage.init(alloc, std.heap.page_allocator);
+    //     var strings = try UniqueStorage.init(alloc, std.heap.page_allocator);
     //     defer strings.deinit();
     //     var parser = parse.Parser.init(alloc, &strings);
     //     defer parser.deinit();
@@ -368,4 +368,4 @@ const mos = @import("mos");
 const rlang = @import("rlang");
 const testing = std.testing;
 
-const StringStorage = @import("string_storage.zig").StringStorage;
+const UniqueStorage = mos.string.UniqueStorage;

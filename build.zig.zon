@@ -21,8 +21,8 @@
     .minimum_zig_version = "0.14.0",
     .dependencies = .{
         .mos = .{
-            .url = "https://github.com/mocompute/mos/archive/refs/tags/v0.2.0.tar.gz",
-            .hash = "12201be8c88f308ba07e8d9ed791a57043b2d2628d9e45e66c1d39d7b147042e30d5",
+            .url = "https://github.com/mocompute/mos/archive/refs/heads/main.tar.gz",
+            .hash = "122000182f8e240777a9daa451610979565df3c2cc77fa2f98adab1a120b95427274",
         },
         .dcf = .{
             .url = "https://github.com/mocompute/zig-dcf/archive/refs/heads/main.tar.gz",

@@ -692,7 +692,7 @@ pub const Role = enum(u8) {
 };
 
 /// Caller owns returned slice, which is allocated with Author's allocator.
-pub fn read(self: *Authors, source: []const u8, strings: *StringStorage) ![]LogItem {
+pub fn read(self: *Authors, source: []const u8, strings: *UniqueStorage) ![]LogItem {
     const eql = std.ascii.eqlIgnoreCase;
 
     var log = LogItems.init(self.alloc);
@@ -916,7 +916,7 @@ test "Authors" {
         \\
     ;
 
-    var strings = try StringStorage.init(alloc, std.heap.page_allocator);
+    var strings = try UniqueStorage.init(alloc, std.heap.page_allocator);
     defer strings.deinit();
 
     var authors = Authors.init(alloc);
@@ -945,7 +945,7 @@ test "Authors logging" {
         \\
     ;
 
-    var strings = try StringStorage.init(alloc, std.heap.page_allocator);
+    var strings = try UniqueStorage.init(alloc, std.heap.page_allocator);
     defer strings.deinit();
 
     var authors = Authors.init(alloc);
@@ -963,8 +963,6 @@ test "Authors logging" {
 
 test "Authors read authors from PACKAGES-full.gz" {
     if (false) {
-        const mos = @import("mos");
-
         var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
         defer arena.deinit();
         const alloc = arena.allocator();
@@ -977,7 +975,7 @@ test "Authors read authors from PACKAGES-full.gz" {
         defer if (source) |s| alloc.free(s);
 
         if (source) |source_| {
-            var strings = try StringStorage.init(alloc, std.heap.page_allocator);
+            var strings = try UniqueStorage.init(alloc, std.heap.page_allocator);
             defer strings.deinit();
 
             var authors = Authors.init(alloc);
@@ -1000,7 +998,8 @@ test "Authors read authors from PACKAGES-full.gz" {
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
-const StringStorage = @import("string_storage.zig").StringStorage;
+const mos = @import("mos");
+const UniqueStorage = mos.string.UniqueStorage;
 
 const dcf = @import("dcf");
 

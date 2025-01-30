@@ -4,8 +4,9 @@ const mos = @import("mos");
 const mosql = @import("mosql");
 
 const mod = @import("r-repo-parse");
-const StringStorage = mod.StringStorage;
 const Authors = mod.Authors;
+
+const UniqueStorage = mos.string.UniqueStorage;
 
 const Options = .{
     .{ "db", 0 }, // suppress -d option
@@ -78,7 +79,7 @@ pub fn main() !void {
     }
 
     // set up Authors
-    var strings = try StringStorage.init(alloc, std.heap.page_allocator);
+    var strings = try UniqueStorage.init(alloc, std.heap.page_allocator);
     defer strings.deinit();
     var authors = Authors.init(alloc);
     defer authors.deinit();
@@ -155,7 +156,7 @@ pub fn main() !void {
     }
 }
 
-fn do_parse(alloc: std.mem.Allocator, authors: *Authors, strings: *StringStorage, in: []const u8) !void {
+fn do_parse(alloc: std.mem.Allocator, authors: *Authors, strings: *UniqueStorage, in: []const u8) !void {
     const source = try std.fmt.allocPrint(alloc,
         \\Package: command-line-input
         \\Authors@R: {s}
@@ -279,7 +280,7 @@ fn insert_roles(conn: mosql.Connection) !void {
     try conn.commit();
 }
 
-fn read_file(alloc: std.mem.Allocator, authors: *Authors, strings: *StringStorage, path: []const u8) !void {
+fn read_file(alloc: std.mem.Allocator, authors: *Authors, strings: *UniqueStorage, path: []const u8) !void {
     std.fs.cwd().access(path, .{}) catch |err| {
         std.debug.print("error: could not access '{s}': {s}\n", .{ path, @errorName(err) });
         return;

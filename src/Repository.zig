@@ -1,5 +1,5 @@
 alloc: Allocator,
-strings: StringStorage,
+strings: UniqueStorage,
 packages: std.MultiArrayList(Package),
 parse_error: ?ParseError = null,
 stanza_error: ?dcf.StanzaParser.ErrorInfo = null,
@@ -12,7 +12,7 @@ pub const Tools = @import("Repository/Tools.zig");
 pub fn init(alloc: Allocator) !Repository {
     return .{
         .alloc = alloc,
-        .strings = try StringStorage.init(alloc, std.heap.page_allocator),
+        .strings = try UniqueStorage.init(alloc, std.heap.page_allocator),
         .packages = .{},
     };
 }
@@ -465,4 +465,4 @@ const rlang = @import("rlang");
 const testing = std.testing;
 const Allocator = std.mem.Allocator;
 
-const StringStorage = @import("string_storage.zig").StringStorage;
+const UniqueStorage = mos.string.UniqueStorage;

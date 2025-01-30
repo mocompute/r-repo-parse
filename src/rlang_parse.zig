@@ -79,13 +79,13 @@ const Token = union(enum) {
 pub const Tokenizer = struct {
     source: []const u8 = &.{},
     index: usize = 0,
-    strings: *StringStorage,
+    strings: *UniqueStorage,
 
     /// Initialise a Tokenizer and ready it to return one token at a
     /// time by calls to its `next` function. Tokens representing
     /// strings will copy the strings out of buffer and into the
-    /// provided StringStorage.
-    pub fn init(source: []const u8, strings: *StringStorage) Tokenizer {
+    /// provided UniqueStorage.
+    pub fn init(source: []const u8, strings: *UniqueStorage) Tokenizer {
         return .{ .source = source, .index = 0, .strings = strings };
     }
 
@@ -126,7 +126,7 @@ pub const Tokenizer = struct {
     };
 
     /// Return the next token in the source provided to the `init`
-    /// function. Strings are copied to the StringStorage provided to
+    /// function. Strings are copied to the UniqueStorage provided to
     /// the `init` function. Locations are byte indexes into the
     /// source.
     pub fn next(self: *Tokenizer) error{OutOfMemory}!Result {
@@ -371,10 +371,10 @@ const NamedArgument = struct {
 pub const Parser = struct {
     alloc: Allocator,
     tokenizer: *Tokenizer,
-    strings: *StringStorage,
+    strings: *UniqueStorage,
 
     /// Provide an ArenaAllocator, because this parser leaks memory.
-    pub fn init(alloc: Allocator, tokenizer: *Tokenizer, strings: *StringStorage) Parser {
+    pub fn init(alloc: Allocator, tokenizer: *Tokenizer, strings: *UniqueStorage) Parser {
         return .{
             .alloc = alloc,
             .tokenizer = tokenizer,
@@ -695,7 +695,7 @@ test "rlang tokenize" {
         \\
     ;
 
-    var strings = try StringStorage.init(alloc, std.heap.page_allocator);
+    var strings = try UniqueStorage.init(alloc, std.heap.page_allocator);
     defer strings.deinit();
 
     var tokenizer = Tokenizer.init(source, &strings);
@@ -719,7 +719,7 @@ test "rlang tokenize 2" {
         \\
     ;
 
-    var strings = try StringStorage.init(alloc, std.heap.page_allocator);
+    var strings = try UniqueStorage.init(alloc, std.heap.page_allocator);
     defer strings.deinit();
 
     var tokenizer = Tokenizer.init(source, &strings);
@@ -767,7 +767,7 @@ test "rlang tokenize parenthesized string" {
         \\
     ;
 
-    var strings = try StringStorage.init(alloc, std.heap.page_allocator);
+    var strings = try UniqueStorage.init(alloc, std.heap.page_allocator);
     defer strings.deinit();
 
     var tokenizer = Tokenizer.init(source, &strings);
@@ -790,7 +790,7 @@ test "rlang tokenize quoted named argument" {
         \\
     ;
 
-    var strings = try StringStorage.init(alloc, std.heap.page_allocator);
+    var strings = try UniqueStorage.init(alloc, std.heap.page_allocator);
     defer strings.deinit();
 
     var tokenizer = Tokenizer.init(source, &strings);
@@ -813,7 +813,7 @@ test "rlang tokenize named vector argument" {
         \\
     ;
 
-    var strings = try StringStorage.init(alloc, std.heap.page_allocator);
+    var strings = try UniqueStorage.init(alloc, std.heap.page_allocator);
     defer strings.deinit();
 
     var tokenizer = Tokenizer.init(source, &strings);
@@ -840,7 +840,7 @@ test "rlang tokenize comment = NULL" {
         \\           comment = NULL)
     ;
 
-    var strings = try StringStorage.init(alloc, std.heap.page_allocator);
+    var strings = try UniqueStorage.init(alloc, std.heap.page_allocator);
     defer strings.deinit();
 
     var tokenizer = Tokenizer.init(source, &strings);
@@ -880,7 +880,7 @@ test "rlang parse named vector argument" {
         \\ person(given = c("first", "second"))
         \\
     ;
-    var strings = try StringStorage.init(alloc, std.heap.page_allocator);
+    var strings = try UniqueStorage.init(alloc, std.heap.page_allocator);
     defer strings.deinit();
 
     var tokenizer = Tokenizer.init(source, &strings);
@@ -901,7 +901,7 @@ test "rlang parse parenthesized string" {
         \\ person(("parenthesized string"))
         \\
     ;
-    var strings = try StringStorage.init(alloc, std.heap.page_allocator);
+    var strings = try UniqueStorage.init(alloc, std.heap.page_allocator);
     defer strings.deinit();
 
     var tokenizer = Tokenizer.init(source, &strings);
@@ -921,7 +921,7 @@ test "rlang parse quoted named argument" {
         \\ person("quoted-argument" = "value")
         \\
     ;
-    var strings = try StringStorage.init(alloc, std.heap.page_allocator);
+    var strings = try UniqueStorage.init(alloc, std.heap.page_allocator);
     defer strings.deinit();
 
     var tokenizer = Tokenizer.init(source, &strings);
@@ -941,7 +941,7 @@ test "rlang parse comment = NULL" {
         \\    person("Xiurui", "Zhu", , "xxx@abc.def", role = c("aut", "cre"),
         \\           comment = NULL)
     ;
-    var strings = try StringStorage.init(alloc, std.heap.page_allocator);
+    var strings = try UniqueStorage.init(alloc, std.heap.page_allocator);
     defer strings.deinit();
 
     var tokenizer = Tokenizer.init(source, &strings);
@@ -960,7 +960,7 @@ test "rlang parse email=)" {
     const source =
         \\    person(given = "First", family = "Second", role = "aut", email=)
     ;
-    var strings = try StringStorage.init(alloc, std.heap.page_allocator);
+    var strings = try UniqueStorage.init(alloc, std.heap.page_allocator);
     defer strings.deinit();
 
     var tokenizer = Tokenizer.init(source, &strings);
@@ -978,7 +978,7 @@ test "rlang parse email=," {
     const source =
         \\    person(given = "First", family = "Second", role = "aut", email=,)
     ;
-    var strings = try StringStorage.init(alloc, std.heap.page_allocator);
+    var strings = try UniqueStorage.init(alloc, std.heap.page_allocator);
     defer strings.deinit();
 
     var tokenizer = Tokenizer.init(source, &strings);
@@ -1006,7 +1006,7 @@ test "rlang parse" {
         \\  )
         \\
     ;
-    var strings = try StringStorage.init(alloc, std.heap.page_allocator);
+    var strings = try UniqueStorage.init(alloc, std.heap.page_allocator);
     defer strings.deinit();
 
     var tokenizer = Tokenizer.init(source, &strings);
@@ -1024,7 +1024,7 @@ test "rlang parse 1" {
     defer arena.deinit();
     const source = "c()";
 
-    var strings = try StringStorage.init(alloc, std.heap.page_allocator);
+    var strings = try UniqueStorage.init(alloc, std.heap.page_allocator);
     defer strings.deinit();
 
     var tokenizer = Tokenizer.init(source, &strings);
@@ -1094,5 +1094,6 @@ fn expectTokens(expect: []const Token, actual: []const Token) !void {
 }
 
 const std = @import("std");
+const mos = @import("mos");
 const Allocator = std.mem.Allocator;
-const StringStorage = @import("string_storage.zig").StringStorage;
+const UniqueStorage = mos.string.UniqueStorage;
