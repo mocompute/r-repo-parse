@@ -17,15 +17,14 @@
 
 const std = @import("std");
 const mos = @import("mos");
+const rlang = @import("rlang");
 
 pub const repository = @import("repository_tools.zig");
-pub const rlang_parse = @import("rlang_parse.zig");
 pub const Authors = @import("Authors.zig");
 
 pub const Repository = repository.Repository;
 
 test {
     _ = repository;
-    _ = rlang_parse;
     _ = Authors;
 }

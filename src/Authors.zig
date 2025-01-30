@@ -1002,12 +1002,12 @@ const mos = @import("mos");
 const UniqueStorage = mos.string.UniqueStorage;
 
 const dcf = @import("dcf");
+const rlang = @import("rlang");
 
-const rlang_parse = @import("rlang_parse.zig");
-const RTokenizer = rlang_parse.Tokenizer;
-const RParser = rlang_parse.Parser;
-const FunctionCall = rlang_parse.FunctionCall;
-const FunctionArg = rlang_parse.FunctionArg;
+const RTokenizer = rlang.Tokenizer;
+const RParser = rlang.Parser;
+const FunctionCall = rlang.FunctionCall;
+const FunctionArg = rlang.FunctionArg;
 
 const Authors = @This();
 const assert = std.debug.assert;
