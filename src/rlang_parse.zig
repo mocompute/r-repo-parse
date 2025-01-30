@@ -526,7 +526,7 @@ pub const Parser = struct {
                     } },
                     .comma => state = .{ .funcall_comma = st.* },
                     .open_round => state = .{ .funcall_open_round_expect_string = st.* },
-                    .close_round => {
+                    .close_round, .eof => {
                         // end of funcall
                         return ok_function_call(.{
                             .name = st.name.string,
@@ -536,7 +536,7 @@ pub const Parser = struct {
                     },
 
                     else => |tok| {
-                        std.debug.print("error: unexpected token in function {}\n", .{st});
+                        std.debug.print("error: unexpected token '{}' in function {}\n", .{ tok, st });
                         return err(.{ .unexpected_token = tok }, res.ok.loc);
                     },
                 }
