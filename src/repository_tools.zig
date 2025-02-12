@@ -33,23 +33,6 @@ test "PACKAGES.gz" {
 
     var strings = try UniqueStorage.init(alloc, std.heap.page_allocator);
     defer strings.deinit();
-    // var parser = parse.Parser.init(alloc, &strings);
-    // defer parser.deinit();
-    // parser.parse(source.?) catch |err| switch (err) {
-    //     error.ParseError => {
-    //         if (parser.parse_error) |perr| {
-    //             perr.debugPrint(source.?);
-    //         }
-    //     },
-    //     error.OutOfMemory => {
-    //         std.debug.print("ERROR: OutOfMemory\n", .{});
-    //     },
-    //     else => unreachable,
-    // };
-
-    // std.debug.print("Parse to AST only = {}ms\n", .{@divFloor(timer.lap(), 1_000_000)});
-    // std.debug.print("Parser nodes: {d}\n", .{parser.nodes.items.len});
-    // std.debug.print("Number of stanzas parsed: {d}\n", .{parser.numStanzas()});
 
     // read entire repo
     var repo = try Repository.init(alloc);
