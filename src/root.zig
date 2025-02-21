@@ -17,7 +17,11 @@
 
 const std = @import("std");
 const mos = @import("mos");
-const rlang = @import("rlang");
+
+// Re-export this dependency because some of its types are used in
+// public APIs of this library, and others are useful to other
+// consumers (for example, the r-build-zig project).
+pub const rlang = @import("rlang");
 
 pub const repository = @import("repository_tools.zig");
 pub const Authors = @import("Authors.zig");
