@@ -16,31 +16,32 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 .{
-    .name = "r_repo_parse",
+    .name = .r_repo_parse,
+    .fingerprint = 0x842b0563f9beb6a6,
     .version = "0.7.0",
     .minimum_zig_version = "0.14.0",
     .dependencies = .{
         .mos = .{
             .url = "https://github.com/mocompute/mos/archive/refs/tags/v0.3.0.tar.gz",
-            .hash = "1220c0172b7ba886061915cb3521c38cd5146d5007e5c7ffb920aee8a1ecc66953f1",
+            .hash = "mos-0.3.0-AAAAAEnJAADAFyt7qIYGGRXLNSHDjNUUbVAH5cf_uSCu",
         },
         .dcf = .{
             .url = "https://github.com/mocompute/zig-dcf/archive/refs/tags/v0.2.0.tar.gz",
-            .hash = "1220a7f19611dcf37ee2b7075d55ceed3be4a86717a2c538496c9dc82e2582e9e97f",
+            .hash = "dcf-0.2.0-AAAAACzUAACn8ZYR3PN-4rcHXVXO7TvkqGcXosU4SWyd",
         },
         .rlang = .{
-            .url = "https://github.com/mocompute/zig-rlang/archive/refs/tags/v0.1.0.tar.gz",
-            .hash = "12201129893fbfb20699dca960e2e0e297bcde755ee26b9c778e29b4ee57460f4891",
+            .url = "https://github.com/mocompute/zig-rlang/archive/refs/tags/v0.2.0.tar.gz",
+            .hash = "rlang-0.2.0-4QzPu3ojAQB_WogB9kB6vTHvdWm7EXSzvx9zj9FZAgG7",
         },
 
         .cmdline = .{
             .url = "https://codeberg.org/mocompute/cmdline/archive/refs/tags/v0.2.0.tar.gz",
-            .hash = "1220282a3821f32628ba00a350b20846201dca82208c4ca0f63fdaaab0d1106f9141",
+            .hash = "cmdline-0.2.0-AAAAAAuGAAAoKjgh8yYougCjULIIRiAdyoIgjEyg9j_a",
             .lazy = true,
         },
         .mosql = .{
             .url = "https://codeberg.org/mocompute/mosql/archive/refs/tags/v0.3.0.tar.gz",
-            .hash = "1220a392d6ee5e83944e4dde69de1b60fad809627fd4c7d48b1b3584f13b99bbfdf9",
+            .hash = "mosql-0.1.0-AAAAAJBRlQCjktbuXoOUTk3ead4bYPrYCWJ_1MfUixs1",
             .lazy = true,
         },
     },
