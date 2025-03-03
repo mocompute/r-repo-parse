@@ -3,7 +3,7 @@ const cmdline = @import("cmdline");
 const mos = @import("mos");
 const mosql = @import("mosql");
 
-const mod = @import("r-repo-parse");
+const mod = @import("r_repo_parse");
 const Authors = mod.Authors;
 
 const UniqueStorage = mos.string.UniqueStorage;

@@ -61,7 +61,7 @@ pub fn build(b: *Build) !void {
 
     // -- begin module ---------------------------------------------------------
 
-    const mod = b.addModule("r-repo-parse", .{
+    const mod = b.addModule("r_repo_parse", .{
         .root_source_file = b.path("src/root.zig"),
         .target = target,
         .optimize = optimize,
@@ -81,7 +81,7 @@ pub fn build(b: *Build) !void {
         .optimize = optimize,
     });
     exe.root_module.addImport("mos", mos);
-    exe.root_module.addImport("r-repo-parse", mod);
+    exe.root_module.addImport("r_repo_parse", mod);
 
     if (cmdline) |dep| {
         exe.root_module.addImport("cmdline", dep.module("cmdline"));
