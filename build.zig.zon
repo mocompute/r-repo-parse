@@ -18,20 +18,20 @@
 .{
     .name = .r_repo_parse,
     .fingerprint = 0x842b0563f9beb6a6,
-    .version = "0.7.0",
+    .version = "0.8.0",
     .minimum_zig_version = "0.14.0",
     .dependencies = .{
         .mos = .{
-            .url = "https://github.com/mocompute/mos/archive/refs/tags/v0.3.0.tar.gz",
-            .hash = "mos-0.3.0-AAAAAEnJAADAFyt7qIYGGRXLNSHDjNUUbVAH5cf_uSCu",
+            .url = "https://github.com/mocompute/mos/archive/refs/tags/v0.4.0.tar.gz",
+            .hash = "mos-0.4.0-Ciufim_JAADcaJ3uhu6kYWudMtEoepIHqL5AYOghpAiP",
         },
         .dcf = .{
             .url = "https://github.com/mocompute/zig-dcf/archive/refs/tags/v0.2.0.tar.gz",
             .hash = "dcf-0.2.0-AAAAACzUAACn8ZYR3PN-4rcHXVXO7TvkqGcXosU4SWyd",
         },
         .rlang = .{
-            .url = "https://github.com/mocompute/zig-rlang/archive/refs/tags/v0.2.0.tar.gz",
-            .hash = "rlang-0.2.0-4QzPu3ojAQB_WogB9kB6vTHvdWm7EXSzvx9zj9FZAgG7",
+            .url = "https://github.com/mocompute/zig-rlang/archive/refs/tags/v0.3.0.tar.gz",
+            .hash = "rlang-0.3.0-4QzPu3ojAQDP9mFNN0jl9o1D-nivnQlwYs68bjrTOHOG",
         },
 
         .cmdline = .{
